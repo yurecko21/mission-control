@@ -1189,15 +1189,31 @@ function renderVault(){
   const grid=document.getElementById('vaultGrid');grid.innerHTML='';
   vault.forEach(item=>{
     const card=document.createElement('div');card.className='vault-card';
-    card.innerHTML=`
-      <div class="vault-icon">${item.icon}</div>
-      <div class="vault-content">
-        <div class="vault-label">${item.label}</div>
-        <div class="vault-value">${item.value}</div>
-        <button class="copy-btn" id="copy-${item.id}" onclick="copyVault(${item.id})">Copy</button>
-      </div>
-      <button class="vault-delete" onclick="deleteVault(${item.id})">×</button>
-    `;
+
+    const iconEl=document.createElement('div');
+    iconEl.className='vault-icon';
+    iconEl.textContent=item.icon;  // textContent handles emoji correctly
+
+    const content=document.createElement('div');content.className='vault-content';
+
+    const label=document.createElement('div');label.className='vault-label';
+    label.textContent=item.label;
+
+    const value=document.createElement('div');value.className='vault-value';
+    value.textContent=item.value;
+
+    const copyBtn=document.createElement('button');
+    copyBtn.className='copy-btn';copyBtn.id='copy-'+item.id;
+    copyBtn.textContent='Copy';
+    copyBtn.onclick=()=>copyVault(item.id);
+
+    content.appendChild(label);content.appendChild(value);content.appendChild(copyBtn);
+
+    const delBtn=document.createElement('button');
+    delBtn.className='vault-delete';delBtn.textContent='×';
+    delBtn.onclick=()=>deleteVault(item.id);
+
+    card.appendChild(iconEl);card.appendChild(content);card.appendChild(delBtn);
     grid.appendChild(card);
     enableVaultDrag(card, item.id);
   });
