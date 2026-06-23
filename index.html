@@ -196,9 +196,10 @@ body.edit-mode .add-btn { display: block; }
   background: var(--surface2);
 }
 .tile-logo {
-  width: 46px; height: 46px;
+  width: 48px; height: 48px;
   border-radius: 10px;
-  object-fit: contain; background: #fff; padding: 5px;
+  object-fit: contain; background: #fff; padding: 4px;
+  image-rendering: -webkit-optimize-contrast;
 }
 .tile-logo.emoji-logo {
   background: var(--surface2);
@@ -453,6 +454,18 @@ body.edit-mode .morning-add-btn { display: block; }
 .sync-status.ok      { color: var(--lime); border-color: rgba(140,196,64,0.3); }
 .sync-status.syncing { color: var(--muted); border-color: var(--border); }
 .sync-status.error   { color: var(--danger); border-color: rgba(248,113,113,0.3); }
+
+/* ── LOGO EDIT ───────────────────────────────────────────────────── */
+.tile-logo-edit {
+  position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.7); color: #fff;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 2px 7px; border-radius: 4px; border: none;
+  cursor: pointer; display: none; white-space: nowrap;
+  transition: background 0.15s;
+}
+.tile-logo-edit:hover { background: #00aded; }
+body.edit-mode .bookmark-tile:hover .tile-logo-edit { display: block; }
 
 /* ── DRAG & DROP ─────────────────────────────────────────────────── */
 body.edit-mode .bookmark-tile,
@@ -965,8 +978,8 @@ document.getElementById('searchInput').addEventListener('keydown',e=>{
 });
 
 // ── FAVICON ───────────────────────────────────────────────────────────────
-const fav=url=>{try{const h=new URL(url).hostname;return`https://logo.clearbit.com/${h}`;}catch{return '';}};
-const favFallback=url=>{try{return`https://www.google.com/s2/favicons?sz=64&domain=${new URL(url).hostname}`;}catch{return '';}};
+const fav=url=>{try{return`https://www.google.com/s2/favicons?sz=128&domain=${new URL(url).hostname}`;}catch{return '';}};
+const favFallback=url=>{try{return`https://icons.duckduckgo.com/ip3/${new URL(url).hostname}.ico`;}catch{return '';}};;
 
 // ── TILE FACTORY ──────────────────────────────────────────────────────────
 function makeTile(bm,secKey,rowKey,index){
@@ -981,6 +994,7 @@ function makeTile(bm,secKey,rowKey,index){
       onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='${favFallback(bm.url)}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}">
     <div class="tile-logo emoji-logo" style="display:none">🔗</div>
     <span class="tile-name">${bm.name}</span>
+    <button class="tile-logo-edit" onclick="editTileLogo('${secKey}','${rowKey}',${bm.id},event)">🖼 Logo</button>
   `;
   tile.addEventListener('click',()=>{
     if(!document.body.classList.contains('edit-mode')) window.open(bm.url,'_blank');
@@ -1360,6 +1374,19 @@ function getArr(secKey, rowKey) {
 function saveArr(secKey, rowKey, arr) {
   if (secKey === 'av')       { rowKey === 'top' ? (avTop = arr) : (avSec = arr); scheduleSave(); }
   if (secKey === 'personal') { rowKey === 'top' ? (personalTop = arr) : (personalSec = arr); scheduleSave(); }
+}
+
+// ── LOGO EDITOR ──────────────────────────────────────────────────────────
+function editTileLogo(secKey, rowKey, id, e) {
+  e.stopPropagation();
+  const arr = getArr(secKey, rowKey);
+  const bm = arr.find(b => b.id === id);
+  if (!bm) return;
+  const url = prompt(`Logo URL for "${bm.name}":\n\nPaste a direct image URL (.png, .svg, .ico)\nor leave blank to reset to auto-favicon:`, bm.logo || '');
+  if (url === null) return; // cancelled
+  bm.logo = url.trim();
+  scheduleSave();
+  renderSection(secKey);
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────
