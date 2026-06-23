@@ -457,7 +457,7 @@ body.edit-mode .morning-add-btn { display: block; }
 
 /* ── LOGO EDIT ───────────────────────────────────────────────────── */
 .tile-logo-edit {
-  position: absolute; bottom: 4px; right: 4px;
+  position: absolute; bottom: 4px; left: 4px;
   background: rgba(0,0,0,0.65); color: #fff;
   font-size: 10px; line-height: 1;
   width: 18px; height: 18px;
@@ -469,6 +469,22 @@ body.edit-mode .morning-add-btn { display: block; }
 }
 .tile-logo-edit:hover { background: #00aded; }
 body.edit-mode .tile-logo-edit { display: flex; }
+
+.tile-edit-btn {
+  position: absolute; bottom: 4px; right: 4px;
+  background: rgba(0,0,0,0.65); color: #fff;
+  font-size: 11px; line-height: 1;
+  width: 18px; height: 18px;
+  border-radius: 4px; border: none;
+  cursor: pointer; display: none;
+  align-items: center; justify-content: center;
+  transition: background 0.15s;
+  z-index: 2;
+}
+.tile-edit-btn:hover { background: #00aded; }
+body.edit-mode .tile-edit-btn { display: flex; }
+
+body.edit-mode .vault-edit-btn { display: block !important; }
 
 /* ── DRAG & DROP ─────────────────────────────────────────────────── */
 body.edit-mode .bookmark-tile,
@@ -691,6 +707,7 @@ kbd {
     <h3 id="bmModalTitle">Add Bookmark</h3>
     <input type="hidden" id="bm-section">
     <input type="hidden" id="bm-row">
+    <input type="hidden" id="bm-edit-id">
     <div class="form-group"><label>Name</label><input type="text" id="bm-name" placeholder="e.g. Gmail"></div>
     <div class="form-group"><label>URL</label><input type="url" id="bm-url" placeholder="https://..."></div>
     <div class="form-group"><label>Logo URL</label><input type="url" id="bm-logo" placeholder="optional — auto-fetches favicon"></div>
@@ -700,19 +717,20 @@ kbd {
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('bookmarkModal')">Cancel</button>
-      <button class="btn green" onclick="saveBookmark()">Add Bookmark</button>
+      <button class="btn green" id="bmSaveBtn" onclick="saveBookmark()">Add Bookmark</button>
     </div>
   </div>
 </div>
 
 <div class="modal-backdrop" id="vaultModal">
   <div class="modal">
-    <h3>Add Vault Snippet</h3>
+    <h3 id="vaultModalTitle">Add Vault Snippet</h3>
+    <input type="hidden" id="v-edit-id">
     <div class="form-group"><label>Label</label><input type="text" id="v-label" placeholder="e.g. Work Phone"></div>
     <div class="form-group"><label>Value (text to copy)</label><textarea id="v-value" placeholder="The text you want to paste…"></textarea></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('vaultModal')">Cancel</button>
-      <button class="btn green" onclick="saveVaultItem()">Add Snippet</button>
+      <button class="btn green" id="vaultSaveBtn" onclick="saveVaultItem()">Add Snippet</button>
     </div>
   </div>
 </div>
@@ -1101,9 +1119,15 @@ function makeTile(bm,secKey,rowKey,index){
   nm.className='tile-name';nm.textContent=bm.name;
   tile.appendChild(nm);
 
-  // Logo edit button
+  // Edit button (edit mode only) — bottom right
+  const editBtn=document.createElement('button');
+  editBtn.className='tile-edit-btn';editBtn.title='Edit bookmark';editBtn.textContent='✎';
+  editBtn.onclick=e=>{e.stopPropagation();openBookmarkModal(secKey,rowKey,'',bm.id);};
+  tile.appendChild(editBtn);
+
+  // Logo edit button — bottom left
   const logoBtn=document.createElement('button');
-  logoBtn.className='tile-logo-edit';logoBtn.title='Change logo';logoBtn.textContent='✎';
+  logoBtn.className='tile-logo-edit';logoBtn.title='Change logo';logoBtn.textContent='⬡';
   logoBtn.onclick=e=>editTileLogo(secKey,rowKey,bm.id,e);
   tile.appendChild(logoBtn);
 
@@ -1197,12 +1221,21 @@ function renderVault(){
     const value=document.createElement('div');value.className='vault-value';
     value.textContent=item.value;
 
+    const btnRow=document.createElement('div');btnRow.style.cssText='display:flex;gap:5px;margin-top:6px;';
+
     const copyBtn=document.createElement('button');
     copyBtn.className='copy-btn';copyBtn.id='copy-'+item.id;
     copyBtn.textContent='Copy';
     copyBtn.onclick=()=>copyVault(item.id);
 
-    content.appendChild(label);content.appendChild(value);content.appendChild(copyBtn);
+    const editBtn=document.createElement('button');
+    editBtn.className='copy-btn vault-edit-btn';
+    editBtn.textContent='Edit';
+    editBtn.style.display='none';
+    editBtn.onclick=()=>openVaultModal(item.id);
+
+    btnRow.appendChild(copyBtn);btnRow.appendChild(editBtn);
+    content.appendChild(label);content.appendChild(value);content.appendChild(btnRow);
 
     const delBtn=document.createElement('button');
     delBtn.className='vault-delete';delBtn.textContent='×';
@@ -1299,13 +1332,26 @@ function saveGroupRename(){
 }
 
 // ── MODALS ────────────────────────────────────────────────────────────────
-function openBookmarkModal(secKey,rowKey,prefillGroup=''){
+function openBookmarkModal(secKey,rowKey,prefillGroup='',editId=null){
   document.getElementById('bm-section').value=secKey;
   document.getElementById('bm-row').value=rowKey;
+  document.getElementById('bm-edit-id').value=editId||'';
+  const editing = editId !== null;
   document.getElementById('bmModalTitle').textContent=
-    `Add to ${secKey==='av'?'AV':'Personal'} — ${rowKey==='top'?'Top':'Secondary'}`;
-  ['bm-name','bm-url','bm-logo'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('bm-group').value=prefillGroup;
+    editing ? 'Edit Bookmark' : `Add to ${secKey==='av'?'AV':'Personal'} — ${rowKey==='top'?'Top':'Secondary'}`;
+  document.getElementById('bmSaveBtn').textContent = editing ? 'Save Changes' : 'Add Bookmark';
+  if (editing) {
+    const arr=getArr(secKey,rowKey);
+    const bm=arr.find(b=>b.id===editId);
+    if (!bm) return;
+    document.getElementById('bm-name').value=bm.name;
+    document.getElementById('bm-url').value=bm.url;
+    document.getElementById('bm-logo').value=bm.logo||'';
+    document.getElementById('bm-group').value=bm.group||'';
+  } else {
+    ['bm-name','bm-url','bm-logo'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('bm-group').value=prefillGroup;
+  }
   document.getElementById('bm-group-row').style.display=rowKey==='sec'?'block':'none';
   document.getElementById('bookmarkModal').classList.add('open');
   setTimeout(()=>document.getElementById('bm-name').focus(),50);
@@ -1317,32 +1363,59 @@ function openBmModalForGroup(secKey,group,e){
 function saveBookmark(){
   const secKey=document.getElementById('bm-section').value;
   const rowKey=document.getElementById('bm-row').value;
+  const editId=document.getElementById('bm-edit-id').value;
   const name=document.getElementById('bm-name').value.trim();
   const url=document.getElementById('bm-url').value.trim();
   const logo=document.getElementById('bm-logo').value.trim();
   const group=document.getElementById('bm-group').value.trim();
   if(!name||!url)return;
-  const bm={id:Date.now(),name,url,logo,group};
-  if(secKey==='av'){
-    if(rowKey==='top'){avTop.push(bm);scheduleSave();}
-    else{avSec.push(bm);scheduleSave();}
-  }else{
-    if(rowKey==='top'){personalTop.push(bm);scheduleSave();}
-    else{personalSec.push(bm);scheduleSave();}
+  if (editId) {
+    // Edit existing
+    const arr=getArr(secKey,rowKey);
+    const bm=arr.find(b=>b.id===parseInt(editId)||b.id===editId);
+    if(bm){bm.name=name;bm.url=url;bm.logo=logo;bm.group=group;scheduleSave();}
+  } else {
+    // Add new
+    const bm={id:Date.now(),name,url,logo,group};
+    if(secKey==='av'){
+      if(rowKey==='top'){avTop.push(bm);}else{avSec.push(bm);}
+    }else{
+      if(rowKey==='top'){personalTop.push(bm);}else{personalSec.push(bm);}
+    }
+    scheduleSave();
   }
   renderSection(secKey);closeModal('bookmarkModal');
 }
-function openVaultModal(){
-  ['v-label','v-value','v-icon'].forEach(id=>document.getElementById(id).value='');
+function openVaultModal(editId=null){
+  const editing = editId !== null;
+  document.getElementById('vaultModalTitle').textContent = editing ? 'Edit Snippet' : 'Add Vault Snippet';
+  document.getElementById('vaultSaveBtn').textContent = editing ? 'Save Changes' : 'Add Snippet';
+  document.getElementById('v-edit-id').value = editId || '';
+  if (editing) {
+    const item = vault.find(v=>v.id===editId);
+    if (!item) return;
+    document.getElementById('v-label').value = item.label;
+    document.getElementById('v-value').value = item.value;
+  } else {
+    document.getElementById('v-label').value = '';
+    document.getElementById('v-value').value = '';
+  }
   document.getElementById('vaultModal').classList.add('open');
   setTimeout(()=>document.getElementById('v-label').focus(),50);
 }
 function saveVaultItem(){
   const label=document.getElementById('v-label').value.trim();
   const value=document.getElementById('v-value').value.trim();
-  const icon=document.getElementById('v-icon').value.trim()||'📋';
   if(!label||!value)return;
-  vault.push({id:Date.now(),label,value,icon});scheduleSave();renderVault();closeModal('vaultModal');
+  const editId = document.getElementById('v-edit-id').value;
+  if (editId) {
+    // Editing existing
+    const item = vault.find(v=>v.id===parseInt(editId)||v.id===editId);
+    if (item) { item.label=label; item.value=value; }
+  } else {
+    vault.push({id:Date.now(),label,value,icon:'📋'});
+  }
+  scheduleSave();renderVault();closeModal('vaultModal');
 }
 function openMorningModal(){
   const sel=document.getElementById('mg-select');
