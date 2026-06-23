@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mission Control</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* Background palette — built from #024359 */
+  --bg:       #012030;
+  --surface:  #01293d;
+  --surface2: #02364f;
+  --border:   #034d6e;
+  --border-hi:#056791;
+
+  /* Typography */
+  --text:     #f0f8ff;
+  --text-sub: #c8d8e8;
+  --muted:    #6aacbf;
+
+  /* Actions — cyan blue */
+  --green:        #00aded;
+  --green-dark:   #0098d4;
+  --green-glow:   rgba(0,173,237,0.18);
+
+  /* Accents */
+  --accent:       #00aded;
+  --accent-glow:  rgba(0,173,237,0.18);
+
+  /* Brand accents */
+  --lime:   #8cc440;
+  --yellow: #e8f4ff;
+  --success: #00aded;
+  --danger:  #f87171;
+  --warn:    #fbbf24;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 20px 28px 60px;
+  line-height: 1.5;
+}
+
+/* ── HEADER ──────────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255,222,0,0.2);
+}
+.header-left { display: flex; flex-direction: column; gap: 1px; min-width: 210px; }
+.mc-label {
+  font-size: 15px; font-weight: 800; letter-spacing: 0.14em;
+  text-transform: uppercase; color: #00aded;
+}
+.date-line { font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+.time-line { font-size: 12px; color: var(--text-sub); font-variant-numeric: tabular-nums; }
+.header-center { flex: 1; }
+.header-right { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+
+/* ── SEARCH ──────────────────────────────────────────────────────── */
+.search-wrap { position: relative; }
+.search-wrap input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px 10px 42px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.search-wrap input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.search-wrap input::placeholder { color: var(--muted); }
+.search-icon {
+  position: absolute; left: 13px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted); font-size: 16px; pointer-events: none;
+}
+.engine-toggle {
+  display: flex;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.engine-btn {
+  flex: 1;
+  background: none; border: none;
+  color: var(--muted);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.engine-btn.active { background: var(--lime); color: #fff; }
+.engine-btn:hover:not(.active) { background: var(--border); color: var(--text); }
+
+/* ── BUTTONS ─────────────────────────────────────────────────────── */
+.btn {
+  padding: 7px 15px;
+  border-radius: 8px;
+  border: 1px solid var(--border-hi);
+  background: var(--surface2);
+  color: var(--text-sub);
+  font-size: 12px; font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--border); color: var(--text); border-color: var(--border-hi); }
+.btn.green { background: var(--green); border-color: var(--green); color: #fff; font-weight: 700; }
+.btn.green:hover { background: var(--green-dark); border-color: var(--green-dark); }
+.btn.sm { padding: 4px 11px; font-size: 11px; }
+.btn.danger-btn { border-color: var(--danger); color: var(--danger); }
+.btn.danger-btn:hover { background: rgba(248,113,113,0.1); }
+
+/* ── EDIT BAR ────────────────────────────────────────────────────── */
+.edit-bar {
+  display: none;
+  background: rgba(0,173,237,0.07);
+  border: 1px solid var(--green);
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-size: 12px; color: var(--green);
+  margin-bottom: 18px;
+  align-items: center; gap: 10px;
+}
+body.edit-mode .edit-bar { display: flex; }
+.edit-bar span { flex: 1; color: var(--text-sub); }
+.edit-bar strong { color: var(--text); }
+
+/* ── LAYOUT ──────────────────────────────────────────────────────── */
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 310px;
+  gap: 24px;
+  align-items: start;
+}
+.left-col { display: flex; flex-direction: column; gap: 28px; }
+.right-col { display: flex; flex-direction: column; gap: 18px; }
+
+/* ── SECTION HEADERS ─────────────────────────────────────────────── */
+.section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 13px; }
+.section-title {
+  font-size: 10px; font-weight: 800;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--yellow); white-space: nowrap;
+}
+.section-line { flex: 1; height: 1px; background: var(--yellow); opacity: 0.25; }
+.add-btn {
+  background: none;
+  border: 1px dashed var(--border-hi);
+  color: var(--muted);
+  font-size: 10px; font-weight: 600;
+  padding: 3px 10px; border-radius: 5px;
+  cursor: pointer; transition: all 0.15s;
+  display: none; white-space: nowrap;
+}
+.add-btn:hover { border-color: var(--green); color: var(--green); }
+body.edit-mode .add-btn { display: block; }
+
+/* ── BOOKMARK GRID ───────────────────────────────────────────────── */
+.bookmarks-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+
+/* ── TILE ────────────────────────────────────────────────────────── */
+.bookmark-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 8px 13px;
+  text-align: center; color: var(--text);
+  transition: transform 0.15s, border-color 0.2s, box-shadow 0.2s, background 0.15s;
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+  cursor: pointer;
+}
+.bookmark-tile:hover {
+  transform: translateY(-3px);
+  border-color: #00aded;
+  box-shadow: 0 6px 22px rgba(0,173,237,0.25);
+  background: var(--surface2);
+}
+.tile-logo {
+  width: 46px; height: 46px;
+  border-radius: 10px;
+  object-fit: contain; background: #fff; padding: 5px;
+}
+.tile-logo.emoji-logo {
+  background: var(--surface2);
+  font-size: 26px;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+}
+.tile-name {
+  font-size: 11px; font-weight: 600;
+  color: var(--text-sub);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bookmark-tile:hover .tile-name { color: var(--text); }
+.tile-key-hint {
+  position: absolute; top: 5px; left: 7px;
+  font-size: 9px; color: var(--border-hi); font-weight: 700;
+}
+body.edit-mode .tile-key-hint { display: none; }
+.tile-delete {
+  position: absolute; top: 5px; right: 5px;
+  width: 18px; height: 18px;
+  background: var(--danger); border: none; border-radius: 50%;
+  color: #fff; font-size: 11px;
+  cursor: pointer; display: none;
+  align-items: center; justify-content: center;
+  font-weight: 700;
+}
+body.edit-mode .tile-delete { display: flex; }
+body.edit-mode .bookmark-tile { cursor: default; }
+body.edit-mode .bookmark-tile:hover { transform: none; box-shadow: none; border-color: var(--border); background: var(--surface); }
+body.edit-mode .sec-tile { cursor: pointer !important; }
+body.edit-mode .sec-tile:hover { border-color: var(--accent) !important; background: var(--surface2) !important; box-shadow: 0 0 0 2px var(--accent-glow) !important; }
+
+.add-tile {
+  background: transparent;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 18px 8px 13px;
+  text-align: center; color: var(--muted);
+  cursor: pointer; display: none;
+  flex-direction: column; align-items: center; gap: 9px;
+  transition: border-color 0.15s, color 0.15s;
+  font-size: 11px; font-weight: 600;
+}
+.add-tile:hover { border-color: var(--green); color: var(--green); }
+body.edit-mode .add-tile { display: flex; }
+.add-tile-icon { font-size: 22px; }
+
+/* ── GROUP DRAWERS ───────────────────────────────────────────────── */
+.group-drawer { margin-top: 10px; }
+
+.group-drawer-header {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+.group-drawer-header:hover { border-color: var(--border-hi); background: var(--surface); }
+.group-drawer-header.open {
+  border-radius: 8px 8px 0 0;
+  border-bottom-color: var(--border);
+  background: var(--surface);
+  border-color: var(--border-hi);
+}
+.group-drawer-chevron {
+  font-size: 9px; color: var(--muted);
+  transition: transform 0.2s; flex-shrink: 0;
+}
+.group-drawer-header.open .group-drawer-chevron { transform: rotate(90deg); color: var(--yellow); }
+.group-drawer-name {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); flex: 1;
+}
+.group-drawer-header.open .group-drawer-name { color: var(--text); }
+.group-drawer-header:hover .group-drawer-name { color: var(--text-sub); }
+.group-drawer-count {
+  font-size: 10px; color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px; padding: 1px 8px;
+  font-weight: 600;
+}
+.group-drawer-edit-actions { display: none; gap: 5px; align-items: center; }
+body.edit-mode .group-drawer-edit-actions { display: flex; }
+.group-rename-btn, .group-add-btn {
+  background: none;
+  border: 1px solid var(--border-hi);
+  color: var(--muted);
+  font-size: 10px; font-weight: 600;
+  padding: 2px 8px; border-radius: 4px;
+  cursor: pointer; transition: all 0.15s;
+}
+.group-rename-btn:hover { border-color: var(--accent); color: var(--accent); }
+.group-add-btn:hover { border-color: var(--green); color: var(--green); }
+.group-drawer-body {
+  display: none; padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-hi);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+}
+.group-drawer-body.open { display: block; }
+
+/* ── VAULT ───────────────────────────────────────────────────────── */
+.vault-grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.vault-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 11px;
+  display: flex; align-items: flex-start; gap: 8px;
+  position: relative;
+  transition: border-color 0.15s, background 0.15s;
+  cursor: default;
+}
+.vault-card:hover { border-color: var(--green); background: var(--surface2); }
+.vault-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+.vault-content { flex: 1; min-width: 0; }
+.vault-label {
+  font-size: 9px; font-weight: 800;
+  letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 2px;
+}
+.vault-card:hover .vault-label { color: var(--text-sub); }
+.vault-value {
+  font-size: 11px; font-weight: 500;
+  color: var(--text-sub);
+  word-break: break-all; line-height: 1.35;
+}
+.vault-card:hover .vault-value { color: var(--text); }
+.copy-btn {
+  margin-top: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border-hi);
+  color: var(--muted);
+  font-size: 9px; font-weight: 700;
+  padding: 2px 8px; border-radius: 4px;
+  cursor: pointer; transition: all 0.15s;
+  letter-spacing: 0.03em;
+}
+.copy-btn:hover { background: var(--green); border-color: var(--green); color: #fff; font-weight: 700; }
+.copy-btn.copied { background: var(--green); border-color: var(--green); color: #fff; font-weight: 700; }
+.vault-delete {
+  position: absolute; top: 5px; right: 5px;
+  background: none; border: none;
+  color: transparent; font-size: 13px;
+  cursor: pointer; transition: color 0.15s; line-height: 1;
+}
+.vault-card:hover .vault-delete { color: var(--border-hi); }
+.vault-delete:hover { color: var(--danger) !important; }
+body.edit-mode .vault-delete { color: var(--muted) !important; }
+
+/* ── MORNING WIDGET ──────────────────────────────────────────────── */
+.morning-widget {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 13px 15px;
+}
+.morning-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
+.morning-lbl {
+  font-size: 10px; font-weight: 800;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-sub);
+}
+.open-all-btn {
+  background: var(--lime); border: none;
+  border-radius: 7px; color: #fff;
+  font-size: 12px; font-weight: 700;
+  padding: 6px 14px; cursor: pointer;
+  transition: background 0.15s;
+  letter-spacing: 0.02em;
+}
+.open-all-btn:hover { background: #7ab038; }
+.morning-sites { display: flex; flex-wrap: wrap; gap: 6px; }
+.morning-chip {
+  display: flex; align-items: center; gap: 5px;
+  background: var(--surface2);
+  border: 1px solid var(--border-hi);
+  border-radius: 20px; padding: 4px 11px 4px 7px;
+  font-size: 11px; font-weight: 500; color: var(--text-sub);
+  transition: border-color 0.15s;
+}
+.morning-chip:hover { border-color: var(--green); color: var(--text); }
+.morning-chip img { width: 14px; height: 14px; border-radius: 3px; background: #fff; }
+.morning-chip-del {
+  background: none; border: none;
+  color: var(--muted); font-size: 13px;
+  cursor: pointer; display: none;
+  margin-left: 2px; line-height: 1;
+  transition: color 0.15s;
+}
+.morning-chip-del:hover { color: var(--danger); }
+body.edit-mode .morning-chip-del { display: inline; }
+.morning-add-btn {
+  background: none;
+  border: 1px dashed var(--border-hi);
+  border-radius: 20px; padding: 4px 11px;
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  cursor: pointer; display: none;
+  transition: all 0.15s; margin-top: 7px;
+}
+.morning-add-btn:hover { border-color: var(--green); color: var(--green); }
+body.edit-mode .morning-add-btn { display: block; }
+
+/* ── SCRATCH PAD ─────────────────────────────────────────────────── */
+.scratch-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden;
+}
+.scratch-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px 9px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+}
+.scratch-title {
+  font-size: 10px; font-weight: 800;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-sub);
+}
+.scratch-actions { display: flex; gap: 6px; }
+.scratch-btn {
+  background: none;
+  border: 1px solid var(--border-hi);
+  color: var(--muted);
+  font-size: 10px; font-weight: 600;
+  padding: 3px 8px; border-radius: 5px;
+  cursor: pointer; transition: all 0.15s;
+}
+.scratch-btn:hover { border-color: var(--green); color: var(--green); }
+.scratch-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+#scratchPad {
+  width: 100%; background: transparent; border: none;
+  color: var(--text); font-size: 13px; font-family: inherit;
+  line-height: 1.65; padding: 13px 14px;
+  resize: none; outline: none; min-height: 260px;
+}
+#scratchPad::placeholder { color: var(--border-hi); }
+
+/* ── SYNC STATUS ─────────────────────────────────────────────────── */
+.sync-status {
+  font-size: 11px; font-weight: 600;
+  padding: 4px 10px; border-radius: 6px;
+  border: 1px solid var(--border);
+  white-space: nowrap; transition: all 0.3s;
+}
+.sync-status.ok      { color: var(--lime); border-color: rgba(140,196,64,0.3); }
+.sync-status.syncing { color: var(--muted); border-color: var(--border); }
+.sync-status.error   { color: var(--danger); border-color: rgba(248,113,113,0.3); }
+
+/* ── DRAG & DROP ─────────────────────────────────────────────────── */
+body.edit-mode .bookmark-tile,
+body.edit-mode .vault-card { cursor: grab; }
+body.edit-mode .bookmark-tile:active,
+body.edit-mode .vault-card:active { cursor: grabbing; }
+.drag-over {
+  border-color: #00aded !important;
+  box-shadow: 0 0 0 2px rgba(0,173,237,0.4) !important;
+  opacity: 0.7;
+}
+.dragging {
+  opacity: 0.35;
+  transform: scale(0.97);
+}
+.cmd-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,5,15,0.75);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 14vh; z-index: 200;
+  opacity: 0; pointer-events: none; transition: opacity 0.15s;
+}
+.cmd-backdrop.open { opacity: 1; pointer-events: all; }
+.cmd-box {
+  background: var(--surface);
+  border: 1px solid var(--green);
+  border-radius: 14px; width: 100%; max-width: 500px;
+  overflow: hidden;
+  box-shadow: 0 28px 70px rgba(0,0,0,0.7), 0 0 0 1px rgba(34,197,94,0.1);
+  transform: translateY(-10px); transition: transform 0.15s;
+}
+.cmd-backdrop.open .cmd-box { transform: translateY(0); }
+#cmdInput {
+  width: 100%; background: transparent; border: none;
+  color: var(--text); font-size: 16px; font-family: inherit;
+  padding: 16px 18px; outline: none;
+}
+#cmdInput::placeholder { color: var(--muted); }
+.cmd-results { border-top: 1px solid var(--border); max-height: 300px; overflow-y: auto; }
+.cmd-result {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 18px; cursor: pointer;
+  transition: background 0.1s; font-size: 13px;
+  color: var(--text-sub);
+}
+.cmd-result:hover, .cmd-result.selected { background: var(--surface2); color: var(--text); }
+.cmd-result img { width: 18px; height: 18px; border-radius: 4px; background: #fff; padding: 1px; }
+.cmd-result-name { flex: 1; font-weight: 500; }
+.cmd-result-type {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface2); border: 1px solid var(--border);
+  padding: 1px 6px; border-radius: 4px;
+}
+.cmd-hint {
+  padding: 8px 18px; font-size: 10px; color: var(--muted);
+  border-top: 1px solid var(--border);
+  background: var(--surface2);
+}
+kbd {
+  background: var(--bg); border: 1px solid var(--border-hi);
+  border-radius: 3px; padding: 1px 5px;
+  font-size: 9px; font-family: inherit; color: var(--text-sub);
+}
+
+/* ── MODALS ──────────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,5,15,0.7);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.modal-backdrop.open { opacity: 1; pointer-events: all; }
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border-hi);
+  border-radius: 14px; padding: 26px;
+  width: 100%; max-width: 390px;
+  transform: translateY(12px); transition: transform 0.2s;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+}
+.modal-backdrop.open .modal { transform: translateY(0); }
+.modal h3 { font-size: 15px; font-weight: 700; margin-bottom: 18px; color: var(--text); }
+.form-group { margin-bottom: 13px; }
+.form-group label {
+  display: block; font-size: 10px; font-weight: 700;
+  color: var(--muted); margin-bottom: 5px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+.form-group input, .form-group textarea, .form-group select {
+  width: 100%; background: var(--bg);
+  border: 1px solid var(--border-hi);
+  border-radius: 8px; padding: 9px 11px;
+  color: var(--text); font-size: 13px; font-family: inherit;
+  outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+  border-color: var(--green); box-shadow: 0 0 0 3px var(--green-glow);
+}
+.form-group textarea { resize: vertical; min-height: 64px; }
+.form-group select option { background: var(--surface2); }
+.modal-hint { font-size: 10px; color: var(--muted); margin-top: -8px; margin-bottom: 12px; }
+.modal-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 18px; }
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="header-left">
+    <span class="mc-label">Mission Control</span>
+    <div class="date-line" id="dateDisplay"></div>
+    <div class="time-line" id="timeDisplay"></div>
+  </div>
+
+  <div class="header-center">
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input type="text" id="searchInput" placeholder="Search the web… or press / to jump" autocomplete="off">
+    </div>
+    <div class="engine-toggle">
+      <button class="engine-btn" data-engine="google"     onclick="setEngine('google')">Google</button>
+      <button class="engine-btn" data-engine="perplexity" onclick="setEngine('perplexity')">Perplexity</button>
+      <button class="engine-btn" data-engine="claude"     onclick="setEngine('claude')">Claude</button>
+    </div>
+  </div>
+
+  <div class="header-right">
+    <span class="sync-status" id="syncStatus">⟳ Loading…</span>
+    <button class="btn" id="editToggleBtn" onclick="toggleEdit()">✏️ Edit</button>
+  </div>
+</header>
+
+<!-- ── EDIT BAR ── -->
+<div class="edit-bar">
+  <span>✏️ <strong>Edit mode</strong> — <strong>×</strong> removes items. Click any secondary tile to reassign its group.</span>
+  <button class="btn sm green" onclick="toggleEdit()">Done Editing</button>
+</div>
+
+<!-- ── MAIN LAYOUT ── -->
+<div class="main-layout">
+
+  <!-- LEFT: Bookmarks -->
+  <div class="left-col">
+
+    <!-- AV -->
+    <div>
+      <div class="section-header">
+        <span class="section-title">AV</span>
+        <div class="section-line"></div>
+        <button class="add-btn" onclick="openBookmarkModal('av','top')">+ Add to Top</button>
+      </div>
+      <div class="bookmarks-grid" id="avTopGrid"></div>
+      <div id="avDrawers"></div>
+    </div>
+
+    <!-- Personal -->
+    <div>
+      <div class="section-header">
+        <span class="section-title">Personal</span>
+        <div class="section-line"></div>
+        <button class="add-btn" onclick="openBookmarkModal('personal','top')">+ Add to Top</button>
+      </div>
+      <div class="bookmarks-grid" id="personalTopGrid"></div>
+      <div id="personalDrawers"></div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT: Morning + Scratch + Vault -->
+  <div class="right-col">
+
+    <!-- Morning Opener -->
+    <div class="morning-widget">
+      <div class="morning-top">
+        <span class="morning-lbl">🚀 Morning Opener</span>
+        <button class="open-all-btn" onclick="openAllMorning()">Open All</button>
+      </div>
+      <div class="morning-sites" id="morningSites"></div>
+      <button class="morning-add-btn" onclick="openMorningModal()">+ Add site</button>
+    </div>
+
+    <!-- Scratch Pad -->
+    <div class="scratch-box">
+      <div class="scratch-header">
+        <span class="scratch-title">📝 Scratch Pad</span>
+        <div class="scratch-actions">
+          <button class="scratch-btn" onclick="copyScratch()">Copy All</button>
+          <button class="scratch-btn danger" onclick="clearScratch()">Clear</button>
+        </div>
+      </div>
+      <textarea id="scratchPad" placeholder="Jot anything here — auto-saves instantly…"></textarea>
+    </div>
+
+    <!-- Copy / Paste Vault -->
+    <div>
+      <div class="section-header">
+        <span class="section-title">Copy / Paste Vault</span>
+        <div class="section-line"></div>
+        <button class="add-btn" onclick="openVaultModal()">+ Add</button>
+      </div>
+      <div class="vault-grid-2col" id="vaultGrid"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── COMMAND BAR ── -->
+<div class="cmd-backdrop" id="cmdBackdrop" onclick="closeCmdBg(event)">
+  <div class="cmd-box">
+    <input type="text" id="cmdInput" placeholder="Jump to bookmark or copy vault item…" autocomplete="off">
+    <div class="cmd-results" id="cmdResults"></div>
+    <div class="cmd-hint"><kbd>↑</kbd><kbd>↓</kbd> navigate &nbsp;·&nbsp; <kbd>Enter</kbd> open &nbsp;·&nbsp; <kbd>Esc</kbd> close</div>
+  </div>
+</div>
+
+<!-- ── MODALS ── -->
+<div class="modal-backdrop" id="bookmarkModal">
+  <div class="modal">
+    <h3 id="bmModalTitle">Add Bookmark</h3>
+    <input type="hidden" id="bm-section">
+    <input type="hidden" id="bm-row">
+    <div class="form-group"><label>Name</label><input type="text" id="bm-name" placeholder="e.g. Gmail"></div>
+    <div class="form-group"><label>URL</label><input type="url" id="bm-url" placeholder="https://..."></div>
+    <div class="form-group"><label>Logo URL</label><input type="url" id="bm-logo" placeholder="optional — auto-fetches favicon"></div>
+    <div class="form-group" id="bm-group-row" style="display:none">
+      <label>Group</label>
+      <input type="text" id="bm-group" placeholder="e.g. CRM, Design…">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('bookmarkModal')">Cancel</button>
+      <button class="btn green" onclick="saveBookmark()">Add Bookmark</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="vaultModal">
+  <div class="modal">
+    <h3>Add Vault Snippet</h3>
+    <div class="form-group"><label>Label</label><input type="text" id="v-label" placeholder="e.g. Work Phone"></div>
+    <div class="form-group"><label>Value (text to copy)</label><textarea id="v-value" placeholder="The text you want to paste…"></textarea></div>
+    <div class="form-group"><label>Icon (emoji)</label><input type="text" id="v-icon" placeholder="📋" maxlength="2"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('vaultModal')">Cancel</button>
+      <button class="btn green" onclick="saveVaultItem()">Add Snippet</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="morningModal">
+  <div class="modal">
+    <h3>Add to Morning Opener</h3>
+    <div class="form-group"><label>Pick from bookmarks</label><select id="mg-select"><option value="">— select —</option></select></div>
+    <div class="form-group"><label>Or enter URL directly</label><input type="url" id="mg-url" placeholder="https://..."></div>
+    <div class="form-group"><label>Label</label><input type="text" id="mg-name" placeholder="e.g. Morning News"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('morningModal')">Cancel</button>
+      <button class="btn green" onclick="saveMorningSite()">Add</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="groupModal">
+  <div class="modal">
+    <h3>Assign / Change Group</h3>
+    <p style="font-size:12px;color:var(--text-sub);margin-bottom:14px;line-height:1.5" id="groupModalSub"></p>
+    <div class="form-group">
+      <label>Group name</label>
+      <input type="text" id="group-name-input" placeholder="e.g. Research, Tools…">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('groupModal')">Cancel</button>
+      <button class="btn green" onclick="saveGroupAssign()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="groupRenameModal">
+  <div class="modal">
+    <h3>Rename Group</h3>
+    <div class="form-group"><label>New name</label><input type="text" id="group-rename-input"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('groupRenameModal')">Cancel</button>
+      <button class="btn green" onclick="saveGroupRename()">Rename</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── DEFAULTS ──────────────────────────────────────────────────────────────
+const DEF_AV_TOP = [
+  {id:1, name:'Gmail',    url:'https://mail.google.com',     logo:''},
+  {id:2, name:'Slack',    url:'https://app.slack.com',       logo:''},
+  {id:3, name:'Google',   url:'https://www.google.com',      logo:''},
+  {id:4, name:'YouTube',  url:'https://www.youtube.com',     logo:''},
+  {id:5, name:'ChatGPT',  url:'https://chat.openai.com',     logo:''},
+  {id:6, name:'Claude',   url:'https://claude.ai',           logo:''},
+  {id:7, name:'LinkedIn', url:'https://www.linkedin.com',    logo:''},
+  {id:8, name:'Notion',   url:'https://www.notion.so',       logo:''},
+  {id:9, name:'Drive',    url:'https://drive.google.com',    logo:''},
+  {id:10,name:'Calendar', url:'https://calendar.google.com', logo:''},
+];
+const DEF_AV_SEC = [
+  {id:101,name:'GitHub',    url:'https://github.com',        logo:'',group:'Dev'},
+  {id:102,name:'Vercel',    url:'https://vercel.com',        logo:'',group:'Dev'},
+  {id:103,name:'Figma',     url:'https://figma.com',         logo:'',group:'Design'},
+  {id:104,name:'Canva',     url:'https://canva.com',         logo:'',group:'Design'},
+  {id:105,name:'HubSpot',   url:'https://app.hubspot.com',   logo:'',group:'CRM'},
+  {id:106,name:'Salesforce',url:'https://salesforce.com',    logo:'',group:'CRM'},
+];
+const DEF_PERSONAL_TOP = [
+  {id:201,name:'Amazon',  url:'https://www.amazon.com',    logo:''},
+  {id:202,name:'NYTimes', url:'https://www.nytimes.com',   logo:''},
+  {id:203,name:'Reddit',  url:'https://www.reddit.com',    logo:''},
+  {id:204,name:'Netflix', url:'https://www.netflix.com',   logo:''},
+  {id:205,name:'Spotify', url:'https://open.spotify.com',  logo:''},
+];
+const DEF_PERSONAL_SEC = [
+  {id:301,name:'Airbnb',      url:'https://airbnb.com',         logo:'',group:'Travel'},
+  {id:302,name:'Google Maps', url:'https://maps.google.com',    logo:'',group:'Travel'},
+  {id:303,name:'Expedia',     url:'https://expedia.com',        logo:'',group:'Travel'},
+  {id:304,name:'ESPN',        url:'https://espn.com',           logo:'',group:'Sports'},
+  {id:305,name:'NBA',         url:'https://nba.com',            logo:'',group:'Sports'},
+  {id:306,name:'NFL',         url:'https://nfl.com',            logo:'',group:'Sports'},
+];
+const DEF_VAULT = [
+  {id:1, label:'Gmail',       value:'yourname@gmail.com',              icon:'✉️'},
+  {id:2, label:'Hotmail',     value:'yourname@hotmail.com',            icon:'📧'},
+  {id:3, label:'Full Name',   value:'Your Full Name',                  icon:'👤'},
+  {id:4, label:'AV Phone',    value:'(312) 555-0100',                  icon:'📱'},
+  {id:5, label:'AV Address',  value:'123 Business Ave, Chicago, IL 60601', icon:'🏢'},
+  {id:6, label:'AV Email',    value:'info@yourcompany.com',            icon:'💼'},
+  {id:7, label:'Home Address',value:'123 Main St, Chicago, IL 60601',  icon:'🏠'},
+  {id:8, label:'Cell Phone',  value:'(312) 555-0199',                  icon:'📞'},
+];
+const DEF_MORNING = [
+  {id:1,name:'Gmail',   url:'https://mail.google.com'},
+  {id:2,name:'Slack',   url:'https://app.slack.com'},
+  {id:3,name:'Calendar',url:'https://calendar.google.com'},
+];
+
+// ── GITHUB SYNC ───────────────────────────────────────────────────────────
+const GH_TOKEN  = localStorage.getItem('mc_token') || '';
+const GH_REPO   = 'yurecko21/mission-control-data';
+const GH_FILE   = 'data.json';
+const GH_API    = `https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE}`;
+const EDIT_PASS = 'edit';
+
+// Prompt for token on first load if not stored
+function ensureToken() {
+  let t = localStorage.getItem('mc_token');
+  if (!t) {
+    t = prompt('Enter your GitHub Personal Access Token to enable sync:');
+    if (t && t.trim()) {
+      localStorage.setItem('mc_token', t.trim());
+      location.reload();
+    }
+  }
+}
+
+let ghSha = null;         // current file SHA — needed for updates
+let syncPending = false;
+let syncTimer   = null;
+
+function setSyncStatus(state, msg) {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  const icons = { syncing:'⟳', ok:'✓', error:'⚠' };
+  el.textContent = (icons[state]||'') + ' ' + msg;
+  el.className = 'sync-status ' + state;
+}
+
+async function ghLoad() {
+  setSyncStatus('syncing', 'Loading…');
+  try {
+    const r = await fetch(GH_API, {
+      headers: { Authorization: `token ${GH_TOKEN}`, Accept: 'application/vnd.github.v3+json' }
+    });
+    if (r.status === 404) {
+      // File doesn't exist yet — use defaults, will be created on first save
+      setSyncStatus('ok', 'Ready (new)');
+      return false;
+    }
+    if (!r.ok) throw new Error(`GitHub ${r.status}`);
+    const json = await r.json();
+    ghSha = json.sha;
+    const data = JSON.parse(atob(json.content.replace(/\n/g,'')));
+    // Hydrate state from GitHub data
+    if (data.avTop)       avTop       = data.avTop;
+    if (data.avSec)       avSec       = data.avSec;
+    if (data.personalTop) personalTop = data.personalTop;
+    if (data.personalSec) personalSec = data.personalSec;
+    if (data.vault)       vault       = data.vault;
+    if (data.morning)     morning     = data.morning;
+    if (data.collapsed)   collapsed   = data.collapsed;
+    if (data.searchEngine) searchEngine = data.searchEngine;
+    if (data.scratch !== undefined) {
+      document.getElementById('scratchPad').value = data.scratch;
+    }
+    setSyncStatus('ok', 'Synced');
+    return true;
+  } catch(err) {
+    setSyncStatus('error', 'Load failed');
+    console.error('ghLoad:', err);
+    return false;
+  }
+}
+
+async function ghSave() {
+  setSyncStatus('syncing', 'Saving…');
+  try {
+    const data = {
+      avTop, avSec, personalTop, personalSec,
+      vault, morning, collapsed, searchEngine,
+      scratch: document.getElementById('scratchPad').value
+    };
+    const content = btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2))));
+    const body = { message: 'Mission Control sync', content };
+    if (ghSha) body.sha = ghSha;
+    const r = await fetch(GH_API, {
+      method: 'PUT',
+      headers: {
+        Authorization: `token ${GH_TOKEN}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error(`GitHub ${r.status}`);
+    const json = await r.json();
+    ghSha = json.content.sha;
+    setSyncStatus('ok', 'Saved ✓');
+  } catch(err) {
+    setSyncStatus('error', 'Save failed');
+    console.error('ghSave:', err);
+  }
+}
+
+// Debounced save — waits 1.5s after last change before writing to GitHub
+function scheduleSave() {
+  setSyncStatus('syncing', 'Unsaved…');
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(ghSave, 1500);
+}
+
+// Replace all sv() calls to also trigger a GitHub save
+const _sv = (k, v) => { scheduleSave(); };
+
+// ── STORAGE (thin wrappers — data lives in memory, GitHub is source of truth)
+const ld = (k, d) => d;   // defaults only — real data loaded from GitHub
+const sv = (k, v) => { scheduleSave(); };
+
+// ── EDIT PASSWORD LOCK ────────────────────────────────────────────────────
+function toggleEdit() {
+  if (document.body.classList.contains('edit-mode')) {
+    // Exiting edit mode
+    document.body.classList.remove('edit-mode');
+    document.getElementById('editToggleBtn').textContent = '✏️ Edit';
+    renderSection('av'); renderSection('personal');
+    ghSave(); // immediate save on exit
+  } else {
+    // Entering edit mode — require password
+    const pw = prompt('Enter edit password:');
+    if (pw === null) return; // cancelled
+    if (pw !== EDIT_PASS) {
+      alert('Incorrect password.');
+      return;
+    }
+    document.body.classList.add('edit-mode');
+    document.getElementById('editToggleBtn').textContent = '✓ Done';
+    renderSection('av'); renderSection('personal');
+  }
+}
+
+let avTop       = ld('mc1_avTop',   DEF_AV_TOP);
+let avSec       = ld('mc1_avSec',   DEF_AV_SEC);
+let personalTop = ld('mc1_pTop',    DEF_PERSONAL_TOP);
+let personalSec = ld('mc1_pSec',    DEF_PERSONAL_SEC);
+let vault       = ld('mc1_vault',   DEF_VAULT);
+let morning     = ld('mc1_morning', DEF_MORNING);
+let searchEngine= ld('mc1_engine',  'google');
+let collapsed   = ld('mc1_coll',    {});
+
+// ── DATETIME ──────────────────────────────────────────────────────────────
+function tick(){
+  const n=new Date();
+  document.getElementById('dateDisplay').textContent=
+    n.toLocaleDateString([],{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  document.getElementById('timeDisplay').textContent=
+    n.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+tick(); setInterval(tick,1000);
+
+// ── SEARCH ────────────────────────────────────────────────────────────────
+const ENGINES={
+  google:     q=>`https://www.google.com/search?q=${encodeURIComponent(q)}`,
+  perplexity: q=>`https://www.perplexity.ai/search?q=${encodeURIComponent(q)}`,
+  claude:     q=>`https://claude.ai/new?q=${encodeURIComponent(q)}`,
+};
+function setEngine(e){
+  searchEngine=e; scheduleSave();
+  document.querySelectorAll('.engine-btn').forEach(b=>b.classList.toggle('active',b.dataset.engine===e));
+}
+setEngine(searchEngine);
+document.getElementById('searchInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    const q=e.target.value.trim();
+    if(q){window.open(ENGINES[searchEngine](q),'_blank');e.target.value='';}
+  }
+});
+
+// ── FAVICON ───────────────────────────────────────────────────────────────
+const fav=url=>{try{const h=new URL(url).hostname;return`https://logo.clearbit.com/${h}`;}catch{return '';}};
+const favFallback=url=>{try{return`https://www.google.com/s2/favicons?sz=64&domain=${new URL(url).hostname}`;}catch{return '';}};
+
+// ── TILE FACTORY ──────────────────────────────────────────────────────────
+function makeTile(bm,secKey,rowKey,index){
+  const tile=document.createElement('div');
+  tile.className='bookmark-tile'+(rowKey==='sec'?' sec-tile':'');
+  const logo=bm.logo||fav(bm.url);
+  const keyNum=(rowKey==='top'&&index<9)?index+1:'';
+  tile.innerHTML=`
+    ${keyNum?`<span class="tile-key-hint">${keyNum}</span>`:''}
+    <button class="tile-delete" onclick="deleteBm('${secKey}','${rowKey}',${bm.id},event)">×</button>
+    <img class="tile-logo" src="${logo}" alt="${bm.name}"
+      onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='${favFallback(bm.url)}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}">
+    <div class="tile-logo emoji-logo" style="display:none">🔗</div>
+    <span class="tile-name">${bm.name}</span>
+  `;
+  tile.addEventListener('click',()=>{
+    if(!document.body.classList.contains('edit-mode')) window.open(bm.url,'_blank');
+    else if(rowKey==='sec') openGroupModal(secKey,bm.id,bm.name,bm.group||'');
+  });
+  enableTileDrag(tile, secKey, rowKey, bm.id);
+  return tile;
+}
+
+// ── RENDER TOP ────────────────────────────────────────────────────────────
+function renderTopGrid(secKey){
+  const arr=secKey==='av'?avTop:personalTop;
+  const grid=document.getElementById(secKey+'TopGrid');
+  grid.innerHTML='';
+  arr.forEach((bm,i)=>grid.appendChild(makeTile(bm,secKey,'top',i)));
+  const at=document.createElement('div');at.className='add-tile';
+  at.innerHTML='<div class="add-tile-icon">＋</div><span>Add</span>';
+  at.onclick=()=>openBookmarkModal(secKey,'top');
+  grid.appendChild(at);
+}
+
+// ── RENDER DRAWERS ────────────────────────────────────────────────────────
+function getGroups(arr){
+  const seen=new Set(),groups=[];
+  arr.forEach(bm=>{if(bm.group&&!seen.has(bm.group)){seen.add(bm.group);groups.push(bm.group);}});
+  return groups;
+}
+function renderDrawers(secKey){
+  const arr=secKey==='av'?avSec:personalSec;
+  const wrap=document.getElementById(secKey+'Drawers');
+  wrap.innerHTML='';
+  getGroups(arr).forEach(group=>{
+    const tiles=arr.filter(bm=>bm.group===group);
+    const colKey=secKey+':'+group;
+    const isOpen=collapsed[colKey]!==true;
+    const drawer=document.createElement('div');drawer.className='group-drawer';
+    const header=document.createElement('div');
+    header.className='group-drawer-header'+(isOpen?' open':'');
+    header.innerHTML=`
+      <span class="group-drawer-chevron">▶</span>
+      <span class="group-drawer-name">${group}</span>
+      <span class="group-drawer-count">${tiles.length}</span>
+      <div class="group-drawer-edit-actions">
+        <button class="group-rename-btn" onclick="openGroupRenameModal('${secKey}','${group}',event)">Rename</button>
+        <button class="group-add-btn" onclick="openBmModalForGroup('${secKey}','${group}',event)">+ Add</button>
+      </div>
+    `;
+    header.addEventListener('click',e=>{
+      if(e.target.closest('.group-drawer-edit-actions'))return;
+      collapsed[colKey]=isOpen;scheduleSave();renderDrawers(secKey);
+    });
+    const body=document.createElement('div');
+    body.className='group-drawer-body'+(isOpen?' open':'');
+    const grid=document.createElement('div');grid.className='bookmarks-grid';
+    tiles.forEach((bm,i)=>grid.appendChild(makeTile(bm,secKey,'sec',i)));
+    const at=document.createElement('div');at.className='add-tile';
+    at.innerHTML='<div class="add-tile-icon">＋</div><span>Add</span>';
+    at.onclick=()=>openBmModalForGroup(secKey,group);
+    grid.appendChild(at);
+    body.appendChild(grid);
+    drawer.appendChild(header);drawer.appendChild(body);
+    wrap.appendChild(drawer);
+  });
+  // unassigned nudge in edit mode only
+  const unassigned=arr.filter(bm=>!bm.group);
+  if(unassigned.length&&document.body.classList.contains('edit-mode')){
+    const note=document.createElement('div');
+    note.style.cssText='margin-top:10px;padding:8px 12px;font-size:11px;color:var(--muted);border:1px dashed var(--border-hi);border-radius:8px;';
+    note.textContent=`${unassigned.length} tile${unassigned.length>1?'s have':' has'} no group — click to assign.`;
+    wrap.appendChild(note);
+    const grid=document.createElement('div');grid.className='bookmarks-grid';grid.style.marginTop='8px';
+    unassigned.forEach((bm,i)=>grid.appendChild(makeTile(bm,secKey,'sec',i)));
+    wrap.appendChild(grid);
+  }
+}
+function renderSection(secKey){renderTopGrid(secKey);renderDrawers(secKey);}
+
+// ── VAULT ─────────────────────────────────────────────────────────────────
+function renderVault(){
+  const grid=document.getElementById('vaultGrid');grid.innerHTML='';
+  vault.forEach(item=>{
+    const card=document.createElement('div');card.className='vault-card';
+    card.innerHTML=`
+      <div class="vault-icon">${item.icon}</div>
+      <div class="vault-content">
+        <div class="vault-label">${item.label}</div>
+        <div class="vault-value">${item.value}</div>
+        <button class="copy-btn" id="copy-${item.id}" onclick="copyVault(${item.id})">Copy</button>
+      </div>
+      <button class="vault-delete" onclick="deleteVault(${item.id})">×</button>
+    `;
+    grid.appendChild(card);
+    enableVaultDrag(card, item.id);
+  });
+}
+function copyVault(id){
+  const item=vault.find(v=>v.id===id);if(!item)return;
+  navigator.clipboard.writeText(item.value).then(()=>{
+    const btn=document.getElementById(`copy-${id}`);
+    btn.textContent='✓ Copied';btn.classList.add('copied');
+    setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied');},1800);
+  });
+}
+function deleteVault(id){vault=vault.filter(v=>v.id!==id);scheduleSave();renderVault();}
+
+// ── MORNING ───────────────────────────────────────────────────────────────
+function renderMorning(){
+  const wrap=document.getElementById('morningSites');wrap.innerHTML='';
+  morning.forEach(m=>{
+    const chip=document.createElement('div');chip.className='morning-chip';
+    chip.innerHTML=`<img src="${fav(m.url)}" alt="" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='${favFallback(m.url)}';}else{this.style.display='none';}"><span>${m.name}</span><button class="morning-chip-del" onclick="deleteMorning(${m.id},event)">×</button>`;
+    wrap.appendChild(chip);
+  });
+}
+function openAllMorning(){morning.forEach(m=>window.open(m.url,'_blank'));}
+function deleteMorning(id,e){e.stopPropagation();morning=morning.filter(m=>m.id!==id);scheduleSave();renderMorning();}
+
+// ── SCRATCH ───────────────────────────────────────────────────────────────
+const scratchEl=document.getElementById('scratchPad');
+scratchEl.addEventListener('input',()=>scheduleSave());
+function clearScratch(){if(confirm('Clear scratch pad?')){scratchEl.value='';scheduleSave();}}
+function copyScratch(){
+  navigator.clipboard.writeText(scratchEl.value).then(()=>{
+    const b=document.querySelector('.scratch-btn');const o=b.textContent;b.textContent='✓ Copied';
+    setTimeout(()=>b.textContent=o,1500);
+  });
+}
+
+// ── DELETE ────────────────────────────────────────────────────────────────
+function deleteBm(secKey,rowKey,id,e){
+  e.stopPropagation();
+  if(secKey==='av'){
+    if(rowKey==='top'){avTop=avTop.filter(b=>b.id!==id);scheduleSave();}
+    else{avSec=avSec.filter(b=>b.id!==id);scheduleSave();}
+  }else{
+    if(rowKey==='top'){personalTop=personalTop.filter(b=>b.id!==id);scheduleSave();}
+    else{personalSec=personalSec.filter(b=>b.id!==id);scheduleSave();}
+  }
+  renderSection(secKey);
+}
+
+// ── GROUP ASSIGN ──────────────────────────────────────────────────────────
+let gmCtx={};
+function openGroupModal(secKey,id,name,currentGroup){
+  gmCtx={secKey,id};
+  document.getElementById('groupModalSub').textContent=`"${name}" — current group: ${currentGroup||'none'}`;
+  document.getElementById('group-name-input').value=currentGroup||'';
+  document.getElementById('groupModal').classList.add('open');
+  setTimeout(()=>document.getElementById('group-name-input').focus(),50);
+}
+function saveGroupAssign(){
+  const{secKey,id}=gmCtx;
+  const g=document.getElementById('group-name-input').value.trim();
+  const arr=secKey==='av'?avSec:personalSec;
+  const bm=arr.find(b=>b.id===id);
+  if(bm){bm.group=g;scheduleSave();renderDrawers(secKey);}
+  closeModal('groupModal');
+}
+
+// ── GROUP RENAME ──────────────────────────────────────────────────────────
+let grCtx={};
+function openGroupRenameModal(secKey,oldName,e){
+  if(e)e.stopPropagation();
+  grCtx={secKey,oldName};
+  document.getElementById('group-rename-input').value=oldName;
+  document.getElementById('groupRenameModal').classList.add('open');
+  setTimeout(()=>document.getElementById('group-rename-input').focus(),50);
+}
+function saveGroupRename(){
+  const{secKey,oldName}=grCtx;
+  const newName=document.getElementById('group-rename-input').value.trim();
+  if(!newName){closeModal('groupRenameModal');return;}
+  const arr=secKey==='av'?avSec:personalSec;
+  arr.forEach(bm=>{if(bm.group===oldName)bm.group=newName;});
+  scheduleSave();
+  const ok=secKey+':'+oldName,nk=secKey+':'+newName;
+  if(collapsed[ok]!==undefined){collapsed[nk]=collapsed[ok];delete collapsed[ok];scheduleSave();}
+  renderDrawers(secKey);closeModal('groupRenameModal');
+}
+
+// ── MODALS ────────────────────────────────────────────────────────────────
+function openBookmarkModal(secKey,rowKey,prefillGroup=''){
+  document.getElementById('bm-section').value=secKey;
+  document.getElementById('bm-row').value=rowKey;
+  document.getElementById('bmModalTitle').textContent=
+    `Add to ${secKey==='av'?'AV':'Personal'} — ${rowKey==='top'?'Top':'Secondary'}`;
+  ['bm-name','bm-url','bm-logo'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('bm-group').value=prefillGroup;
+  document.getElementById('bm-group-row').style.display=rowKey==='sec'?'block':'none';
+  document.getElementById('bookmarkModal').classList.add('open');
+  setTimeout(()=>document.getElementById('bm-name').focus(),50);
+}
+function openBmModalForGroup(secKey,group,e){
+  if(e)e.stopPropagation();
+  openBookmarkModal(secKey,'sec',group);
+}
+function saveBookmark(){
+  const secKey=document.getElementById('bm-section').value;
+  const rowKey=document.getElementById('bm-row').value;
+  const name=document.getElementById('bm-name').value.trim();
+  const url=document.getElementById('bm-url').value.trim();
+  const logo=document.getElementById('bm-logo').value.trim();
+  const group=document.getElementById('bm-group').value.trim();
+  if(!name||!url)return;
+  const bm={id:Date.now(),name,url,logo,group};
+  if(secKey==='av'){
+    if(rowKey==='top'){avTop.push(bm);scheduleSave();}
+    else{avSec.push(bm);scheduleSave();}
+  }else{
+    if(rowKey==='top'){personalTop.push(bm);scheduleSave();}
+    else{personalSec.push(bm);scheduleSave();}
+  }
+  renderSection(secKey);closeModal('bookmarkModal');
+}
+function openVaultModal(){
+  ['v-label','v-value','v-icon'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('vaultModal').classList.add('open');
+  setTimeout(()=>document.getElementById('v-label').focus(),50);
+}
+function saveVaultItem(){
+  const label=document.getElementById('v-label').value.trim();
+  const value=document.getElementById('v-value').value.trim();
+  const icon=document.getElementById('v-icon').value.trim()||'📋';
+  if(!label||!value)return;
+  vault.push({id:Date.now(),label,value,icon});scheduleSave();renderVault();closeModal('vaultModal');
+}
+function openMorningModal(){
+  const sel=document.getElementById('mg-select');
+  sel.innerHTML='<option value="">— select —</option>';
+  [...avTop,...avSec,...personalTop,...personalSec].forEach(bm=>{
+    const o=document.createElement('option');o.value=bm.url;o.textContent=bm.name;sel.appendChild(o);
+  });
+  ['mg-url','mg-name'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('morningModal').classList.add('open');
+}
+function saveMorningSite(){
+  const selVal=document.getElementById('mg-select').value;
+  const customUrl=document.getElementById('mg-url').value.trim();
+  const customName=document.getElementById('mg-name').value.trim();
+  const url=customUrl||selVal;if(!url)return;
+  let name=customName;
+  if(!name){const bm=[...avTop,...avSec,...personalTop,...personalSec].find(b=>b.url===url);name=bm?bm.name:new URL(url).hostname;}
+  morning.push({id:Date.now(),name,url});scheduleSave();renderMorning();closeModal('morningModal');
+}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+document.querySelectorAll('.modal-backdrop').forEach(el=>
+  el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('open');}));
+
+// ── COMMAND BAR ───────────────────────────────────────────────────────────
+let cmdSel=-1;
+function openCmd(){
+  document.getElementById('cmdBackdrop').classList.add('open');
+  document.getElementById('cmdInput').value='';cmdSel=-1;renderCmdResults('');
+  setTimeout(()=>document.getElementById('cmdInput').focus(),50);
+}
+function closeCmd(){document.getElementById('cmdBackdrop').classList.remove('open');}
+function closeCmdBg(e){if(e.target===document.getElementById('cmdBackdrop'))closeCmd();}
+function renderCmdResults(q){
+  const ql=q.toLowerCase(),results=[];
+  [...avTop,...avSec,...personalTop,...personalSec].forEach(bm=>{
+    if(!ql||bm.name.toLowerCase().includes(ql)||bm.url.toLowerCase().includes(ql))
+      results.push({label:bm.name,icon:fav(bm.url),emoji:null,type:'bookmark',action:()=>window.open(bm.url,'_blank')});
+  });
+  vault.forEach(v=>{
+    if(!ql||v.label.toLowerCase().includes(ql)||v.value.toLowerCase().includes(ql))
+      results.push({label:v.label,icon:null,emoji:v.icon,type:'copy',action:()=>navigator.clipboard.writeText(v.value)});
+  });
+  const el=document.getElementById('cmdResults');el.innerHTML='';
+  results.slice(0,9).forEach((r,i)=>{
+    const div=document.createElement('div');
+    div.className='cmd-result'+(i===cmdSel?' selected':'');
+    div.innerHTML=r.icon
+      ?`<img src="${r.icon}" alt=""><span class="cmd-result-name">${r.label}</span><span class="cmd-result-type">${r.type}</span>`
+      :`<span style="font-size:15px">${r.emoji}</span><span class="cmd-result-name">${r.label}</span><span class="cmd-result-type">copy</span>`;
+    div.addEventListener('click',()=>{r.action();closeCmd();});
+    el.appendChild(div);
+  });
+}
+document.getElementById('cmdInput').addEventListener('input',e=>{cmdSel=-1;renderCmdResults(e.target.value);});
+document.getElementById('cmdInput').addEventListener('keydown',e=>{
+  const items=document.querySelectorAll('.cmd-result');
+  if(e.key==='ArrowDown'){cmdSel=Math.min(cmdSel+1,items.length-1);renderCmdResults(document.getElementById('cmdInput').value);}
+  else if(e.key==='ArrowUp'){cmdSel=Math.max(cmdSel-1,-1);renderCmdResults(document.getElementById('cmdInput').value);}
+  else if(e.key==='Enter'){const t=cmdSel>=0?items[cmdSel]:items[0];if(t)t.click();closeCmd();}
+  else if(e.key==='Escape')closeCmd();
+});
+
+// ── KEYBOARD SHORTCUTS ────────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  const inInput=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName);
+  if(e.key==='/'&&!inInput){e.preventDefault();openCmd();return;}
+  if(e.key==='Escape'){closeCmd();return;}
+  if(!inInput&&e.key>='1'&&e.key<='9'&&!e.metaKey&&!e.ctrlKey){
+    const idx=parseInt(e.key)-1;
+    if(avTop[idx])window.open(avTop[idx].url,'_blank');
+  }
+});
+
+// ── DRAG & DROP ───────────────────────────────────────────────────────────
+let dragSrc = null;   // { type: 'tile'|'vault', secKey, rowKey, id }
+
+function enableTileDrag(tile, secKey, rowKey, id) {
+  tile.setAttribute('draggable', 'true');
+
+  tile.addEventListener('dragstart', e => {
+    if (!document.body.classList.contains('edit-mode')) { e.preventDefault(); return; }
+    dragSrc = { type: 'tile', secKey, rowKey, id };
+    tile.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  tile.addEventListener('dragend', () => tile.classList.remove('dragging'));
+
+  tile.addEventListener('dragover', e => {
+    if (!dragSrc || dragSrc.type !== 'tile') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    tile.classList.add('drag-over');
+  });
+  tile.addEventListener('dragleave', () => tile.classList.remove('drag-over'));
+
+  tile.addEventListener('drop', e => {
+    e.preventDefault();
+    tile.classList.remove('drag-over');
+    if (!dragSrc || dragSrc.type !== 'tile') return;
+    if (dragSrc.id === id) return;
+    // Only allow reorder within same section+row
+    if (dragSrc.secKey !== secKey || dragSrc.rowKey !== rowKey) return;
+
+    const arr = getArr(secKey, rowKey);
+    const fromIdx = arr.findIndex(b => b.id === dragSrc.id);
+    const toIdx   = arr.findIndex(b => b.id === id);
+    if (fromIdx === -1 || toIdx === -1) return;
+    arr.splice(toIdx, 0, arr.splice(fromIdx, 1)[0]);
+    saveArr(secKey, rowKey, arr);
+    renderSection(secKey);
+  });
+}
+
+function enableVaultDrag(card, id) {
+  card.setAttribute('draggable', 'true');
+
+  card.addEventListener('dragstart', e => {
+    if (!document.body.classList.contains('edit-mode')) { e.preventDefault(); return; }
+    dragSrc = { type: 'vault', id };
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  card.addEventListener('dragend', () => card.classList.remove('dragging'));
+
+  card.addEventListener('dragover', e => {
+    if (!dragSrc || dragSrc.type !== 'vault') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    card.classList.add('drag-over');
+  });
+  card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+
+  card.addEventListener('drop', e => {
+    e.preventDefault();
+    card.classList.remove('drag-over');
+    if (!dragSrc || dragSrc.type !== 'vault') return;
+    if (dragSrc.id === id) return;
+    const fromIdx = vault.findIndex(v => v.id === dragSrc.id);
+    const toIdx   = vault.findIndex(v => v.id === id);
+    if (fromIdx === -1 || toIdx === -1) return;
+    vault.splice(toIdx, 0, vault.splice(fromIdx, 1)[0]);
+    scheduleSave();
+    renderVault();
+  });
+}
+
+function getArr(secKey, rowKey) {
+  if (secKey === 'av')       return rowKey === 'top' ? avTop : avSec;
+  if (secKey === 'personal') return rowKey === 'top' ? personalTop : personalSec;
+  return [];
+}
+function saveArr(secKey, rowKey, arr) {
+  if (secKey === 'av')       { rowKey === 'top' ? (avTop = arr) : (avSec = arr); scheduleSave(); }
+  if (secKey === 'personal') { rowKey === 'top' ? (personalTop = arr) : (personalSec = arr); scheduleSave(); }
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+(async () => {
+  ensureToken();
+  if (!localStorage.getItem('mc_token')) return;
+  await ghLoad();
+  setEngine(searchEngine);
+  renderSection('av');
+  renderSection('personal');
+  renderVault();
+  renderMorning();
+  // Restore scratch pad (already set in ghLoad if data existed)
+  const scratchEl = document.getElementById('scratchPad');
+  if (!scratchEl.value) scratchEl.value = '';
+})();
+</script>
+</body>
+</html>
