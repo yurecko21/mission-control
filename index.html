@@ -457,15 +457,18 @@ body.edit-mode .morning-add-btn { display: block; }
 
 /* ── LOGO EDIT ───────────────────────────────────────────────────── */
 .tile-logo-edit {
-  position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-  background: rgba(0,0,0,0.7); color: #fff;
-  font-size: 9px; font-weight: 700; letter-spacing: 0.04em;
-  padding: 2px 7px; border-radius: 4px; border: none;
-  cursor: pointer; display: none; white-space: nowrap;
+  position: absolute; bottom: 4px; right: 4px;
+  background: rgba(0,0,0,0.65); color: #fff;
+  font-size: 10px; line-height: 1;
+  width: 18px; height: 18px;
+  border-radius: 4px; border: none;
+  cursor: pointer; display: none;
+  align-items: center; justify-content: center;
   transition: background 0.15s;
+  z-index: 2;
 }
 .tile-logo-edit:hover { background: #00aded; }
-body.edit-mode .bookmark-tile:hover .tile-logo-edit { display: block; }
+body.edit-mode .tile-logo-edit { display: flex; }
 
 /* ── DRAG & DROP ─────────────────────────────────────────────────── */
 body.edit-mode .bookmark-tile,
@@ -1019,6 +1022,10 @@ function getLogoForBm(bm) {
     'stifel': 'stifel', 'bankofamerica': 'bankofamerica', 'boa': 'bankofamerica',
     'proofpoint': 'proofpoint', 'googlecalendar': 'googlecalendar',
     'calendar': 'googlecalendar',
+    'slack': 'slack', 'notion': 'notion', 'spotify': 'spotify',
+    'figma': 'figma', 'github': 'github', 'google': 'google',
+    'youtube': 'youtube', 'amazon': 'amazon', 'netflix': 'netflix',
+    'drive': 'drive', 'googledrive': 'drive',
   };
   if (keyMap[name]) return LOGO_LIBRARY[keyMap[name]];
   // Fallback to favicon
@@ -1037,7 +1044,7 @@ function makeTile(bm,secKey,rowKey,index){
       onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='${fav(bm.url)}';}else if(this.dataset.tried==='1'){this.dataset.tried='2';this.src='${favFallback(bm.url)}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}">
     <div class="tile-logo emoji-logo" style="display:none">🔗</div>
     <span class="tile-name">${bm.name}</span>
-    <button class="tile-logo-edit" onclick="editTileLogo('${secKey}','${rowKey}',${bm.id},event)">🖼 Logo</button>
+    <button class="tile-logo-edit" onclick="editTileLogo('${secKey}','${rowKey}',${bm.id},event)" title="Change logo">✎</button>
   `;
   tile.addEventListener('click',()=>{
     if(!document.body.classList.contains('edit-mode')) window.open(bm.url,'_blank');
@@ -1425,12 +1432,44 @@ function editTileLogo(secKey, rowKey, id, e) {
   const arr = getArr(secKey, rowKey);
   const bm = arr.find(b => b.id === id);
   if (!bm) return;
-  const url = prompt(`Logo URL for "${bm.name}":\n\nPaste a direct image URL (.png, .svg, .ico)\nor leave blank to reset to auto-favicon:`, bm.logo || '');
-  if (url === null) return; // cancelled
-  bm.logo = url.trim();
+  // pre-fill modal
+  document.getElementById('logo-modal-title').textContent = 'Set Logo — ' + bm.name;
+  document.getElementById('logo-url-input').value = bm.logo || '';
+  document.getElementById('logo-preview').src = getLogoForBm(bm);
+  document.getElementById('logoModal').classList.add('open');
+  document.getElementById('logo-url-input').focus();
+  // store context
+  window._logoCtx = { secKey, rowKey, id };
+}
+function applyLogoChange() {
+  const { secKey, rowKey, id } = window._logoCtx || {};
+  if (!id) return;
+  const arr = getArr(secKey, rowKey);
+  const bm = arr.find(b => b.id === id);
+  if (!bm) return;
+  bm.logo = document.getElementById('logo-url-input').value.trim();
   scheduleSave();
   renderSection(secKey);
+  closeModal('logoModal');
 }
+function clearTileLogo() {
+  const { secKey, rowKey, id } = window._logoCtx || {};
+  if (!id) return;
+  const arr = getArr(secKey, rowKey);
+  const bm = arr.find(b => b.id === id);
+  if (!bm) return;
+  bm.logo = '';
+  scheduleSave();
+  renderSection(secKey);
+  closeModal('logoModal');
+}
+// Live preview
+document.addEventListener('input', e => {
+  if (e.target.id === 'logo-url-input') {
+    const v = e.target.value.trim();
+    document.getElementById('logo-preview').src = v || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  }
+});
 
 // ── INIT ──────────────────────────────────────────────────────────────────
 (async () => {
@@ -1447,5 +1486,30 @@ function editTileLogo(secKey, rowKey, id, e) {
   if (!scratchEl.value) scratchEl.value = '';
 })();
 </script>
+<!-- Logo Editor Modal -->
+<div class="modal-backdrop" id="logoModal">
+  <div class="modal">
+    <h3 id="logo-modal-title">Set Logo</h3>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+      <img id="logo-preview" src="" alt="preview"
+        style="width:52px;height:52px;border-radius:10px;object-fit:contain;background:#fff;padding:4px;border:1px solid var(--border-hi);"
+        onerror="this.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'">
+      <div style="flex:1">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Paste any image URL below and see a live preview</div>
+        <div style="font-size:10px;color:var(--border-hi)">Tip: Google "[App name] logo png" → right-click image → Copy image address</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Image URL (.png, .svg, .ico, .webp)</label>
+      <input type="url" id="logo-url-input" placeholder="https://example.com/logo.png">
+    </div>
+    <div class="modal-actions">
+      <button class="btn danger-btn" onclick="clearTileLogo()">Reset to Auto</button>
+      <button class="btn" onclick="closeModal('logoModal')">Cancel</button>
+      <button class="btn green" onclick="applyLogoChange()">Save Logo</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
