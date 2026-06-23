@@ -811,20 +811,21 @@ const DEF_MORNING = [
 ];
 
 // ── GITHUB SYNC ───────────────────────────────────────────────────────────
-const GH_TOKEN  = localStorage.getItem('mc_token') || '';
 const GH_REPO   = 'yurecko21/mission-control-data';
 const GH_FILE   = 'data.json';
 const GH_API    = `https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE}`;
 const EDIT_PASS = 'edit';
 
+// Always read token fresh — never cache as a const
+function getToken() { return localStorage.getItem('mc_token') || ''; }
+
 // Prompt for token on first load if not stored
 function ensureToken() {
-  let t = localStorage.getItem('mc_token');
+  const t = localStorage.getItem('mc_token');
   if (!t) {
-    t = prompt('Enter your GitHub Personal Access Token to enable sync:');
-    if (t && t.trim()) {
-      localStorage.setItem('mc_token', t.trim());
-      location.reload();
+    const entered = prompt('Enter your GitHub Personal Access Token to enable sync:');
+    if (entered && entered.trim()) {
+      localStorage.setItem('mc_token', entered.trim());
     }
   }
 }
@@ -836,16 +837,31 @@ let syncTimer   = null;
 function setSyncStatus(state, msg) {
   const el = document.getElementById('syncStatus');
   if (!el) return;
-  const icons = { syncing:'⟳', ok:'✓', error:'⚠' };
-  el.textContent = (icons[state]||'') + ' ' + msg;
+  const icons = { syncing:'⟳', ok:'✓', error:'⚠️' };
+  if (state === 'error') {
+    el.innerHTML = `⚠️ ${msg} &nbsp;<button onclick="retrySave()" style="background:#f87171;border:none;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;cursor:pointer">Retry</button> <button onclick="resetToken()" style="background:transparent;border:1px solid #f87171;color:#f87171;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;cursor:pointer">Reset Token</button>`;
+  } else {
+    el.textContent = (icons[state]||'') + ' ' + msg;
+  }
   el.className = 'sync-status ' + state;
+}
+
+function retrySave() { ghSave(); }
+
+function resetToken() {
+  localStorage.removeItem('mc_token');
+  const t = prompt('Enter your GitHub Personal Access Token:');
+  if (t && t.trim()) {
+    localStorage.setItem('mc_token', t.trim());
+    ghSave();
+  }
 }
 
 async function ghLoad() {
   setSyncStatus('syncing', 'Loading…');
   try {
     const r = await fetch(GH_API, {
-      headers: { Authorization: `token ${GH_TOKEN}`, Accept: 'application/vnd.github.v3+json' }
+      headers: { Authorization: `token ${getToken()}`, Accept: 'application/vnd.github.v3+json' }
     });
     if (r.status === 404) {
       // File doesn't exist yet — use defaults, will be created on first save
@@ -878,8 +894,17 @@ async function ghLoad() {
 }
 
 async function ghSave() {
+  const token = getToken();
+  if (!token) { setSyncStatus('error', 'No token — click Reset Token'); return; }
   setSyncStatus('syncing', 'Saving…');
   try {
+    // Fetch latest SHA if we don't have one
+    if (!ghSha) {
+      const check = await fetch(GH_API, {
+        headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' }
+      });
+      if (check.ok) { const ex = await check.json(); ghSha = ex.sha; }
+    }
     const data = {
       avTop, avSec, personalTop, personalSec,
       vault, morning, collapsed, searchEngine,
@@ -891,18 +916,25 @@ async function ghSave() {
     const r = await fetch(GH_API, {
       method: 'PUT',
       headers: {
-        Authorization: `token ${GH_TOKEN}`,
+        Authorization: `token ${token}`,
         Accept: 'application/vnd.github.v3+json',
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(body)
     });
-    if (!r.ok) throw new Error(`GitHub ${r.status}`);
+    if (r.status === 409) {
+      // SHA conflict — clear and retry once
+      ghSha = null; return ghSave();
+    }
+    if (!r.ok) {
+      const err = await r.json().catch(()=>({}));
+      throw new Error(`${r.status}: ${err.message||'unknown error'}`);
+    }
     const json = await r.json();
     ghSha = json.content.sha;
     setSyncStatus('ok', 'Saved ✓');
   } catch(err) {
-    setSyncStatus('error', 'Save failed');
+    setSyncStatus('error', err.message || 'Save failed');
     console.error('ghSave:', err);
   }
 }
