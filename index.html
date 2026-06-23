@@ -1037,20 +1037,50 @@ function makeTile(bm,secKey,rowKey,index){
   tile.className='bookmark-tile'+(rowKey==='sec'?' sec-tile':'');
   const logo=getLogoForBm(bm);
   const keyNum=(rowKey==='top'&&index<9)?index+1:'';
-  tile.innerHTML=`
-    ${keyNum?`<span class="tile-key-hint">${keyNum}</span>`:''}
-    <button class="tile-delete" onclick="deleteBm('${secKey}','${rowKey}',${bm.id},event)">×</button>
-    <img class="tile-logo" src="${logo}" alt="${bm.name}"
-      onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='${fav(bm.url)}';}else if(this.dataset.tried==='1'){this.dataset.tried='2';this.src='${favFallback(bm.url)}';}else{this.style.display='none';this.nextElementSibling.style.display='flex';}">
-    <div class="tile-logo emoji-logo" style="display:none">🔗</div>
-    <span class="tile-name">${bm.name}</span>
-    <button class="tile-logo-edit" onclick="editTileLogo('${secKey}','${rowKey}',${bm.id},event)" title="Change logo">✎</button>
-  `;
+
+  // Key hint
+  if(keyNum){
+    const k=document.createElement('span');
+    k.className='tile-key-hint';k.textContent=keyNum;
+    tile.appendChild(k);
+  }
+
+  // Delete button
+  const del=document.createElement('button');
+  del.className='tile-delete';del.textContent='×';
+  del.onclick=e=>deleteBm(secKey,rowKey,bm.id,e);
+  tile.appendChild(del);
+
+  // Logo img — set src via JS property, never via HTML attribute
+  const img=document.createElement('img');
+  img.className='tile-logo';img.alt=bm.name;
+  const emoji=document.createElement('div');
+  emoji.className='tile-logo emoji-logo';emoji.textContent='🔗';emoji.style.display='none';
+  img.onerror=function(){
+    if(!this._tried1){this._tried1=true;this.src=fav(bm.url);}
+    else if(!this._tried2){this._tried2=true;this.src=favFallback(bm.url);}
+    else{this.style.display='none';emoji.style.display='flex';}
+  };
+  img.src=logo;  // set AFTER onerror is attached
+  tile.appendChild(img);
+  tile.appendChild(emoji);
+
+  // Name
+  const nm=document.createElement('span');
+  nm.className='tile-name';nm.textContent=bm.name;
+  tile.appendChild(nm);
+
+  // Logo edit button
+  const logoBtn=document.createElement('button');
+  logoBtn.className='tile-logo-edit';logoBtn.title='Change logo';logoBtn.textContent='✎';
+  logoBtn.onclick=e=>editTileLogo(secKey,rowKey,bm.id,e);
+  tile.appendChild(logoBtn);
+
   tile.addEventListener('click',()=>{
     if(!document.body.classList.contains('edit-mode')) window.open(bm.url,'_blank');
     else if(rowKey==='sec') openGroupModal(secKey,bm.id,bm.name,bm.group||'');
   });
-  enableTileDrag(tile, secKey, rowKey, bm.id);
+  enableTileDrag(tile,secKey,rowKey,bm.id);
   return tile;
 }
 
@@ -1432,15 +1462,42 @@ function editTileLogo(secKey, rowKey, id, e) {
   const arr = getArr(secKey, rowKey);
   const bm = arr.find(b => b.id === id);
   if (!bm) return;
-  // pre-fill modal
   document.getElementById('logo-modal-title').textContent = 'Set Logo — ' + bm.name;
   document.getElementById('logo-url-input').value = bm.logo || '';
-  document.getElementById('logo-preview').src = getLogoForBm(bm);
+  document.getElementById('logo-file-input').value = '';
+  const preview = document.getElementById('logo-preview');
+  preview.style.opacity = '1';
+  preview.src = getLogoForBm(bm);
   document.getElementById('logoModal').classList.add('open');
-  document.getElementById('logo-url-input').focus();
-  // store context
+  setTimeout(()=>document.getElementById('logo-url-input').focus(), 50);
   window._logoCtx = { secKey, rowKey, id };
 }
+
+// Live preview from URL input
+document.addEventListener('input', e => {
+  if (e.target.id === 'logo-url-input') {
+    const v = e.target.value.trim();
+    const preview = document.getElementById('logo-preview');
+    if (v) { preview.style.opacity='1'; preview.src = v; }
+    else { preview.style.opacity='0.3'; preview.src=''; }
+  }
+});
+
+// File upload → convert to base64 data URL
+document.addEventListener('change', e => {
+  if (e.target.id === 'logo-file-input' && e.target.files[0]) {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const dataUrl = ev.target.result;
+      document.getElementById('logo-url-input').value = dataUrl;
+      const preview = document.getElementById('logo-preview');
+      preview.style.opacity = '1';
+      preview.src = dataUrl;
+    };
+    reader.readAsDataURL(e.target.files[0]);
+  }
+});
+
 function applyLogoChange() {
   const { secKey, rowKey, id } = window._logoCtx || {};
   if (!id) return;
@@ -1452,6 +1509,7 @@ function applyLogoChange() {
   renderSection(secKey);
   closeModal('logoModal');
 }
+
 function clearTileLogo() {
   const { secKey, rowKey, id } = window._logoCtx || {};
   if (!id) return;
@@ -1463,13 +1521,6 @@ function clearTileLogo() {
   renderSection(secKey);
   closeModal('logoModal');
 }
-// Live preview
-document.addEventListener('input', e => {
-  if (e.target.id === 'logo-url-input') {
-    const v = e.target.value.trim();
-    document.getElementById('logo-preview').src = v || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-  }
-});
 
 // ── INIT ──────────────────────────────────────────────────────────────────
 (async () => {
@@ -1492,16 +1543,22 @@ document.addEventListener('input', e => {
     <h3 id="logo-modal-title">Set Logo</h3>
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
       <img id="logo-preview" src="" alt="preview"
-        style="width:52px;height:52px;border-radius:10px;object-fit:contain;background:#fff;padding:4px;border:1px solid var(--border-hi);"
-        onerror="this.src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'">
-      <div style="flex:1">
-        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Paste any image URL below and see a live preview</div>
-        <div style="font-size:10px;color:var(--border-hi)">Tip: Google "[App name] logo png" → right-click image → Copy image address</div>
+        style="width:52px;height:52px;border-radius:10px;object-fit:contain;background:#fff;padding:4px;border:1px solid var(--border-hi);flex-shrink:0"
+        onerror="this.style.opacity='0.3'">
+      <div style="flex:1;font-size:11px;color:var(--muted);line-height:1.6">
+        Paste an image URL <em>or</em> upload a file from your computer
       </div>
     </div>
+    <!-- Option A: URL -->
     <div class="form-group">
-      <label>Image URL (.png, .svg, .ico, .webp)</label>
-      <input type="url" id="logo-url-input" placeholder="https://example.com/logo.png">
+      <label>Paste image URL (.png .svg .webp .ico)</label>
+      <input type="url" id="logo-url-input" placeholder="https://...">
+    </div>
+    <!-- Option B: File upload -->
+    <div class="form-group">
+      <label>Or upload from your computer</label>
+      <input type="file" id="logo-file-input" accept="image/*"
+        style="background:var(--bg);border:1px solid var(--border-hi);border-radius:7px;padding:6px 10px;color:var(--text);font-size:12px;width:100%;cursor:pointer">
     </div>
     <div class="modal-actions">
       <button class="btn danger-btn" onclick="clearTileLogo()">Reset to Auto</button>
