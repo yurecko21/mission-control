@@ -614,6 +614,8 @@ kbd {
 
   <div class="header-right">
     <span class="sync-status" id="syncStatus">⟳ Loading…</span>
+    <button class="btn sm" onclick="forceLoad()" title="Force reload from GitHub">↺ Load</button>
+    <button class="btn sm" onclick="ghSave()" title="Force save to GitHub">↑ Save</button>
     <button class="btn" id="editToggleBtn" onclick="toggleEdit()">✏️ Edit</button>
   </div>
 </header>
@@ -827,179 +829,167 @@ const DEF_MORNING = [
   {id:3,name:'Calendar',url:'https://calendar.google.com'},
 ];
 
-// ── GITHUB SYNC ───────────────────────────────────────────────────────────
-const GH_REPO   = 'yurecko21/mission-control-data';
-const GH_FILE   = 'data.json';
-const GH_API    = `https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE}`;
+// ══════════════════════════════════════════════════════════════════════════
+// SYNC ENGINE — clean rewrite, GitHub as source of truth
+// Uses TextEncoder/TextDecoder for safe base64 — no encoding bugs possible
+// ══════════════════════════════════════════════════════════════════════════
+const GH_REPO = 'yurecko21/mission-control-data';
+const GH_FILE = 'data.json';
+const GH_API  = `https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE}`;
 const EDIT_PASS = 'edit';
 
-// Always read token fresh — never cache as a const
-function getToken() { return localStorage.getItem('mc_token') || ''; }
+function getToken() { return (localStorage.getItem('mc_token') || '').trim(); }
 
-// Prompt for token on first load if not stored
-function ensureToken() {
-  const t = localStorage.getItem('mc_token');
-  if (!t) {
-    const entered = prompt('Enter your GitHub Personal Access Token to enable sync:');
-    if (entered && entered.trim()) {
-      localStorage.setItem('mc_token', entered.trim());
-    }
-  }
-}
-
-let ghSha = null;         // current file SHA — needed for updates
-let syncPending = false;
-let syncTimer   = null;
-
-function setSyncStatus(state, msg) {
+function setStatus(state, msg) {
   const el = document.getElementById('syncStatus');
   if (!el) return;
-  const icons = { syncing:'⟳', ok:'✓', error:'⚠️' };
-  if (state === 'error') {
-    el.innerHTML = `⚠️ ${msg} &nbsp;<button onclick="retrySave()" style="background:#f87171;border:none;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;cursor:pointer">Retry</button> <button onclick="resetToken()" style="background:transparent;border:1px solid #f87171;color:#f87171;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;cursor:pointer">Reset Token</button>`;
-  } else {
-    el.textContent = (icons[state]||'') + ' ' + msg;
-  }
   el.className = 'sync-status ' + state;
+  if (state === 'error') {
+    el.innerHTML = `⚠️ ${msg} <button onclick="resetToken()" style="margin-left:6px;background:#f87171;border:none;color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;cursor:pointer">Reset Token</button>`;
+  } else {
+    el.textContent = ({ loading:'⟳', saving:'⟳', ok:'✓' }[state]||'') + ' ' + msg;
+  }
 }
-
-function retrySave() { ghSave(); }
 
 function resetToken() {
   localStorage.removeItem('mc_token');
-  const t = prompt('Enter your GitHub Personal Access Token:');
-  if (t && t.trim()) {
-    localStorage.setItem('mc_token', t.trim());
-    ghSave();
-  }
+  const t = prompt('Paste your GitHub Personal Access Token:');
+  if (t && t.trim()) { localStorage.setItem('mc_token', t.trim()); location.reload(); }
 }
 
+// TextEncoder/TextDecoder: the only safe way to base64-encode arbitrary JSON
+function toB64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin);
+}
+function fromB64(b64) {
+  const bin = atob(b64.replace(/\n/g, ''));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+let ghSha = null;
+let saveTimer = null;
+let saveInProgress = false;
+let appReady = false;
+
 async function ghLoad() {
-  setSyncStatus('syncing', 'Loading…');
+  const token = getToken();
+  if (!token) { setStatus('error', 'No token'); return false; }
+  setStatus('loading', 'Loading…');
   try {
-    const r = await fetch(GH_API, {
-      headers: { Authorization: `token ${getToken()}`, Accept: 'application/vnd.github.v3+json' }
+    const res = await fetch(GH_API, {
+      cache: 'no-store',
+      headers: { Authorization: 'token ' + token, Accept: 'application/vnd.github.v3+json' }
     });
-    if (r.status === 404) {
-      // File doesn't exist yet — use defaults, will be created on first save
-      setSyncStatus('ok', 'Ready (new)');
-      return false;
-    }
-    if (!r.ok) throw new Error(`GitHub ${r.status}`);
-    const json = await r.json();
+    if (res.status === 401) { setStatus('error', 'Bad token — click Reset Token'); return false; }
+    if (res.status === 404) { setStatus('ok', 'Ready'); ghSha = null; return true; }
+    if (!res.ok) { setStatus('error', 'Load error ' + res.status); return false; }
+    const json = await res.json();
     ghSha = json.sha;
-    const data = JSON.parse(atob(json.content.replace(/\n/g,'')));
-    // Hydrate state from GitHub data
-    if (data.avTop)       avTop       = data.avTop;
-    if (data.avSec)       avSec       = data.avSec;
-    if (data.personalTop) personalTop = data.personalTop;
-    if (data.personalSec) personalSec = data.personalSec;
-    if (data.vault)       vault       = data.vault;
-    if (data.morning)     morning     = data.morning;
-    if (data.collapsed)   collapsed   = data.collapsed;
-    if (data.searchEngine) searchEngine = data.searchEngine;
-    if (data.scratch !== undefined) {
-      document.getElementById('scratchPad').value = data.scratch;
-    }
-    setSyncStatus('ok', 'Synced');
+    const data = JSON.parse(fromB64(json.content));
+    if (Array.isArray(data.avTop))       avTop       = data.avTop;
+    if (Array.isArray(data.avSec))       avSec       = data.avSec;
+    if (Array.isArray(data.personalTop)) personalTop = data.personalTop;
+    if (Array.isArray(data.personalSec)) personalSec = data.personalSec;
+    if (Array.isArray(data.vault))       vault       = data.vault.map(v=>({icon:'📋',...v}));
+    if (Array.isArray(data.morning))     morning     = data.morning;
+    if (data.collapsed && typeof data.collapsed === 'object') collapsed = data.collapsed;
+    if (typeof data.searchEngine === 'string') searchEngine = data.searchEngine;
+    if (typeof data.scratch === 'string') document.getElementById('scratchPad').value = data.scratch;
+    setStatus('ok', 'Loaded ✓');
     return true;
   } catch(err) {
-    setSyncStatus('error', 'Load failed');
-    console.error('ghLoad:', err);
+    setStatus('error', 'Load failed: ' + err.message);
+    console.error('[MC] Load error:', err);
     return false;
   }
 }
 
 async function ghSave() {
+  if (!appReady) return;
+  if (saveInProgress) { saveTimer = setTimeout(ghSave, 1000); return; }
   const token = getToken();
-  if (!token) { setSyncStatus('error', 'No token — click Reset Token'); return; }
-  setSyncStatus('syncing', 'Saving…');
+  if (!token) { setStatus('error', 'No token — click Reset Token'); return; }
+  saveInProgress = true;
+  setStatus('saving', 'Saving…');
   try {
-    // Fetch latest SHA if we don't have one
-    if (!ghSha) {
-      const check = await fetch(GH_API, {
-        headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' }
-      });
-      if (check.ok) { const ex = await check.json(); ghSha = ex.sha; }
-    }
-    const data = {
-      avTop, avSec, personalTop, personalSec,
-      vault, morning, collapsed, searchEngine,
-      scratch: document.getElementById('scratchPad').value
-    };
-    const content = btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2))));
-    const body = { message: 'Mission Control sync', content };
-    if (ghSha) body.sha = ghSha;
-    const r = await fetch(GH_API, {
-      method: 'PUT',
-      headers: {
-        Authorization: `token ${token}`,
-        Accept: 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
+    // Always fetch fresh SHA right before writing
+    const chk = await fetch(GH_API, {
+      cache: 'no-store',
+      headers: { Authorization: 'token ' + token, Accept: 'application/vnd.github.v3+json' }
     });
-    if (r.status === 409) {
-      // SHA conflict — clear and retry once
-      ghSha = null; return ghSave();
+    if (chk.status === 401) { setStatus('error', 'Bad token — click Reset Token'); return; }
+    if (chk.ok) { ghSha = (await chk.json()).sha; }
+
+    const data = { avTop, avSec, personalTop, personalSec, vault, morning, collapsed, searchEngine,
+      scratch: document.getElementById('scratchPad').value };
+    const payload = { message: 'Mission Control sync', content: toB64(JSON.stringify(data)) };
+    if (ghSha) payload.sha = ghSha;
+
+    const put = await fetch(GH_API, {
+      method: 'PUT',
+      headers: { Authorization: 'token ' + token, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!put.ok) {
+      const e = await put.json().catch(()=>({}));
+      throw new Error(put.status + ' — ' + (e.message||'unknown'));
     }
-    if (!r.ok) {
-      const err = await r.json().catch(()=>({}));
-      throw new Error(`${r.status}: ${err.message||'unknown error'}`);
-    }
-    const json = await r.json();
-    ghSha = json.content.sha;
-    setSyncStatus('ok', 'Saved ✓');
+    ghSha = (await put.json()).content.sha;
+    const t = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    setStatus('ok', 'Saved ✓ ' + t);
   } catch(err) {
-    setSyncStatus('error', err.message || 'Save failed');
-    console.error('ghSave:', err);
+    setStatus('error', 'Save failed: ' + err.message);
+    console.error('[MC] Save error:', err);
+  } finally {
+    saveInProgress = false;
   }
 }
 
-// Debounced save — waits 1.5s after last change before writing to GitHub
 function scheduleSave() {
-  setSyncStatus('syncing', 'Unsaved…');
-  clearTimeout(syncTimer);
-  syncTimer = setTimeout(ghSave, 1500);
+  if (!appReady) return;
+  setStatus('saving', 'Unsaved…');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(ghSave, 2000);
 }
 
-// Replace all sv() calls to also trigger a GitHub save
-const _sv = (k, v) => { scheduleSave(); };
+window.addEventListener('beforeunload', e => {
+  if (saveTimer) { clearTimeout(saveTimer); ghSave(); e.preventDefault(); e.returnValue = 'Unsaved changes — leave anyway?'; }
+});
 
-// ── STORAGE (thin wrappers — data lives in memory, GitHub is source of truth)
-const ld = (k, d) => d;   // defaults only — real data loaded from GitHub
-const sv = (k, v) => { scheduleSave(); };
-
-// ── EDIT PASSWORD LOCK ────────────────────────────────────────────────────
 function toggleEdit() {
   if (document.body.classList.contains('edit-mode')) {
-    // Exiting edit mode
     document.body.classList.remove('edit-mode');
     document.getElementById('editToggleBtn').textContent = '✏️ Edit';
     renderSection('av'); renderSection('personal');
-    ghSave(); // immediate save on exit
+    clearTimeout(saveTimer); saveTimer = null;
+    ghSave();
   } else {
-    // Entering edit mode — require password
     const pw = prompt('Enter edit password:');
-    if (pw === null) return; // cancelled
-    if (pw !== EDIT_PASS) {
-      alert('Incorrect password.');
-      return;
-    }
+    if (!pw) return;
+    if (pw !== EDIT_PASS) { alert('Incorrect password.'); return; }
     document.body.classList.add('edit-mode');
     document.getElementById('editToggleBtn').textContent = '✓ Done';
     renderSection('av'); renderSection('personal');
   }
 }
 
-let avTop       = ld('mc1_avTop',   DEF_AV_TOP);
-let avSec       = ld('mc1_avSec',   DEF_AV_SEC);
-let personalTop = ld('mc1_pTop',    DEF_PERSONAL_TOP);
-let personalSec = ld('mc1_pSec',    DEF_PERSONAL_SEC);
-let vault       = ld('mc1_vault',   DEF_VAULT);
-let morning     = ld('mc1_morning', DEF_MORNING);
-let searchEngine= ld('mc1_engine',  'google');
-let collapsed   = ld('mc1_coll',    {});
+const ld = (k, d) => d;
+const sv = () => scheduleSave();
+
+let avTop       = DEF_AV_TOP.map(b=>({...b}));
+let avSec       = DEF_AV_SEC.map(b=>({...b}));
+let personalTop = DEF_PERSONAL_TOP.map(b=>({...b}));
+let personalSec = DEF_PERSONAL_SEC.map(b=>({...b}));
+let vault       = DEF_VAULT.map(v=>({...v}));
+let morning     = DEF_MORNING.map(m=>({...m}));
+let searchEngine = 'google';
+let collapsed   = {};
+
 
 // ── DATETIME ──────────────────────────────────────────────────────────────
 function tick(){
@@ -1017,8 +1007,9 @@ const ENGINES={
   perplexity: q=>`https://www.perplexity.ai/search?q=${encodeURIComponent(q)}`,
   claude:     q=>`https://claude.ai/new?q=${encodeURIComponent(q)}`,
 };
-function setEngine(e){
-  searchEngine=e; scheduleSave();
+function setEngine(e, noSave=false){
+  searchEngine=e;
+  if (!noSave) scheduleSave();
   document.querySelectorAll('.engine-btn').forEach(b=>b.classList.toggle('active',b.dataset.engine===e));
 }
 setEngine(searchEngine);
@@ -1055,6 +1046,16 @@ const LOGO_LIBRARY = {
   'stifel': 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="%23002B5C"/><text x="20" y="27" text-anchor="middle" font-size="11" font-family="Arial,sans-serif" font-weight="bold" fill="white">STIFEL</text></svg>',
   'bankofamerica': 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="%23E31837"/><text x="20" y="22" text-anchor="middle" font-size="9" font-family="Arial,sans-serif" font-weight="bold" fill="white">BANK OF</text><text x="20" y="32" text-anchor="middle" font-size="9" font-family="Arial,sans-serif" font-weight="bold" fill="white">AMERICA</text></svg>',
   'proofpoint': 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="%230066CC"/><path d="M12 12h10a6 6 0 010 12H16v6h-4V12zm4 4v4h6a2 2 0 000-4h-6z" fill="white"/></svg>',
+  'slack':    'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="%234A154B"/><path d="M14 22a2 2 0 01-2 2 2 2 0 01-2-2 2 2 0 012-2h2v2zm1 0a2 2 0 012-2 2 2 0 012 2v5a2 2 0 01-2 2 2 2 0 01-2-2v-5z" fill="%23E01E5A"/><path d="M17 14a2 2 0 01-2-2 2 2 0 012-2 2 2 0 012 2v2h-2zm0 1a2 2 0 012 2 2 2 0 01-2 2h-5a2 2 0 01-2-2 2 2 0 012-2h5z" fill="%2336C5F0"/><path d="M25 17a2 2 0 012 2 2 2 0 01-2 2h-2v-2a2 2 0 012-2zm-1 0a2 2 0 01-2-2 2 2 0 012-2 2 2 0 012 2v5a2 2 0 01-2 2 2 2 0 01-2-2v-5z" fill="%232EB67D"/><path d="M22 25a2 2 0 012 2 2 2 0 01-2 2 2 2 0 01-2-2v-2h2zm0-1a2 2 0 01-2-2 2 2 0 012-2h5a2 2 0 012 2 2 2 0 01-2 2h-5z" fill="%23ECB22E"/></svg>',
+  'notion':   'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="white"/><path d="M11 10h12l7 7v13a2 2 0 01-2 2H11a2 2 0 01-2-2V12a2 2 0 012-2zm12 0v7h7" stroke="%23000" stroke-width="1.5" fill="none"/><line x1="13" y1="19" x2="27" y2="19" stroke="%23000" stroke-width="1.5"/><line x1="13" y1="23" x2="27" y2="23" stroke="%23000" stroke-width="1.5"/><line x1="13" y1="27" x2="20" y2="27" stroke="%23000" stroke-width="1.5"/></svg>',
+  'spotify':  'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="%231DB954"/><path d="M14 16.5c3.5-1 8.5-.5 11.5 2" stroke="white" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M14.5 20c3-0.8 7-.4 10 1.5" stroke="white" stroke-width="2" stroke-linecap="round" fill="none"/><path d="M15 23.5c2.5-0.6 5.5-.3 7.5 1" stroke="white" stroke-width="2" stroke-linecap="round" fill="none"/></svg>',
+  'figma':    'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="white"/><rect x="13" y="8" width="7" height="7" rx="2" fill="%23F24E1E"/><rect x="20" y="8" width="7" height="7" rx="2" fill="%23FF7262"/><rect x="13" y="15" width="7" height="7" rx="2" fill="%23A259FF"/><circle cx="23.5" cy="18.5" r="3.5" fill="%231ABCFE"/><rect x="13" y="22" width="7" height="7" rx="2" fill="%230ACF83"/></svg>',
+  'github':   'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="%23181717"/><path d="M20 8a12 12 0 00-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 016 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0020 8z" fill="white"/></svg>',
+  'google':   'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="white"/><path d="M30 20.2c0-.7-.1-1.3-.2-1.9H20v3.6h5.6a4.8 4.8 0 01-2.1 3.2v2.6h3.3c2-1.8 3.2-4.5 3.2-7.5z" fill="%234285F4"/><path d="M20 31c2.7 0 5-.9 6.7-2.4l-3.3-2.6c-.9.6-2.1 1-3.4 1-2.6 0-4.9-1.8-5.7-4.1H11v2.7A10 10 0 0020 31z" fill="%2334A853"/><path d="M14.3 22.9a6 6 0 010-3.8V16.4H11a10 10 0 000 9l3.3-2.5z" fill="%23FBBC05"/><path d="M20 13.9c1.5 0 2.8.5 3.8 1.5l2.8-2.8A9.9 9.9 0 0020 10a10 10 0 00-9 5.4l3.3 2.5c.8-2.3 3.1-4 5.7-4z" fill="%23EA4335"/></svg>',
+  'youtube':  'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="%23FF0000"/><path d="M32 14.5s-.3-2-1.3-2.8c-1.2-1.3-2.6-1.3-3.2-1.4C23.8 10 20 10 20 10s-3.8 0-7.5.3c-.6.1-2 .1-3.2 1.4C8.3 12.5 8 14.5 8 14.5S7.7 16.8 7.7 19v2.1c0 2.3.3 4.5.3 4.5s.3 2 1.3 2.8c1.2 1.3 2.8 1.2 3.5 1.3C14.7 30 20 30 20 30s3.8 0 7.5-.3c.6-.1 2-.1 3.2-1.4 1-1 1.3-2.8 1.3-2.8s.3-2.3.3-4.5V19c0-2.2-.3-4.5-.3-4.5zM17.3 23v-7.8l8.6 3.9-8.6 3.9z" fill="white"/></svg>',
+  'amazon':   'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="%23FF9900"/><text x="20" y="24" text-anchor="middle" font-size="13" font-family="Arial,sans-serif" font-weight="bold" fill="white">amazon</text></svg>',
+  'netflix':  'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="%23141414"/><path d="M13 10h4l3 12V10h4v20l-4-.1-3-11.9V30h-4V10z" fill="%23E50914"/></svg>',
+  'drive':    'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="white"/><path d="M20 9l10 17H10L20 9z" fill="%2334A853"/><path d="M10 26l5-8.5L20 26H10z" fill="%234285F4"/><path d="M20 26l5-8.5 5 8.5H20z" fill="%23FBBC05"/></svg>',
   'googlecalendar': 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="white" stroke="%23DADCE0" stroke-width="1"/><rect x="8" y="12" width="24" height="20" rx="2" fill="white" stroke="%23DADCE0" stroke-width="1.5"/><rect x="8" y="12" width="24" height="7" rx="2" fill="%231A73E8"/><text x="20" y="29" text-anchor="middle" font-size="10" font-family="Arial,sans-serif" font-weight="bold" fill="%231A73E8">CAL</text><line x1="8" y1="19" x2="32" y2="19" stroke="%231A73E8" stroke-width="0"/></svg>',
 };
 
@@ -1464,7 +1465,7 @@ function renderCmdResults(q){
     div.className='cmd-result'+(i===cmdSel?' selected':'');
     div.innerHTML=r.icon
       ?`<img src="${r.icon}" alt=""><span class="cmd-result-name">${r.label}</span><span class="cmd-result-type">${r.type}</span>`
-      :`<span style="font-size:15px">${r.emoji}</span><span class="cmd-result-name">${r.label}</span><span class="cmd-result-type">copy</span>`;
+      :`<span style="font-size:15px">${r.emoji||'📋'}</span><span class="cmd-result-name">${r.label}</span><span class="cmd-result-type">copy</span>`;
     div.addEventListener('click',()=>{r.action();closeCmd();});
     el.appendChild(div);
   });
@@ -1477,6 +1478,8 @@ document.getElementById('cmdInput').addEventListener('keydown',e=>{
   else if(e.key==='Enter'){const t=cmdSel>=0?items[cmdSel]:items[0];if(t)t.click();closeCmd();}
   else if(e.key==='Escape')closeCmd();
 });
+
+
 
 // ── KEYBOARD SHORTCUTS ────────────────────────────────────────────────────
 document.addEventListener('keydown',e=>{
@@ -1638,19 +1641,54 @@ function clearTileLogo() {
   closeModal('logoModal');
 }
 
+// ── FORCE LOAD ───────────────────────────────────────────────────────────────
+async function forceLoad() {
+  appReady = false;
+  const loaded = await ghLoad();
+  if (loaded) {
+    setEngine(searchEngine, true);
+    renderSection('av');
+    renderSection('personal');
+    renderVault();
+    renderMorning();
+    document.getElementById('scratchPad').value = document.getElementById('scratchPad').value; // already set by ghLoad
+  }
+  appReady = true;
+}
+
 // ── INIT ──────────────────────────────────────────────────────────────────
 (async () => {
-  ensureToken();
-  if (!localStorage.getItem('mc_token')) return;
-  await ghLoad();
-  setEngine(searchEngine);
+  // Step 1: render defaults immediately — page is never blank
+  setEngine('google', true);
   renderSection('av');
   renderSection('personal');
   renderVault();
   renderMorning();
-  // Restore scratch pad (already set in ghLoad if data existed)
-  const scratchEl = document.getElementById('scratchPad');
-  if (!scratchEl.value) scratchEl.value = '';
+
+  // Step 2: ensure token exists
+  if (!getToken()) {
+    const t = prompt('Enter your GitHub Personal Access Token to enable sync:');
+    if (t && t.trim()) {
+      localStorage.setItem('mc_token', t.trim());
+    } else {
+      setStatus('error', 'No token — click Reset Token');
+      appReady = true;
+      return;
+    }
+  }
+
+  // Step 3: load real data — overwrites defaults
+  const loaded = await ghLoad();
+  if (loaded) {
+    setEngine(searchEngine, true);
+    renderSection('av');
+    renderSection('personal');
+    renderVault();
+    renderMorning();
+  }
+
+  // Step 4: open for saves
+  appReady = true;
 })();
 </script>
 <!-- Logo Editor Modal -->
